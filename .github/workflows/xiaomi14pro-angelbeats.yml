@@ -90,6 +90,37 @@ jobs:
           
           echo "✅ Kconfig files fixed!"
       
+      - name: 🩹 Fix kernel source compilation issues
+        working-directory: kernel
+        run: |
+          echo "🩹 Applying source code fixes..."
+          
+          # Fix 1: Add missing include for early_init_dt_scan
+          if [ -f "arch/arm64/kernel/setup.c" ]; then
+            if ! grep -q "#include <linux/of_fdt.h>" arch/arm64/kernel/setup.c; then
+              sed -i '/#include <linux\/of\.h>/a #include <linux/of_fdt.h>' arch/arm64/kernel/setup.c
+              echo "✅ Fixed: Added of_fdt.h include to setup.c"
+            fi
+          fi
+          
+          # Fix 2: Fix CPU topology mask issue
+          if [ -f "kernel/sched/topology.c" ]; then
+            # Add fallback for missing cpu_coregroup_mask
+            if ! grep -q "cpu_coregroup_mask" include/linux/sched/topology.h 2>/dev/null; then
+              cat >> include/linux/sched/topology.h << 'EOF'
+#ifndef cpu_coregroup_mask
+#define cpu_coregroup_mask(cpu) cpu_core_mask(cpu)
+#endif
+EOF
+              echo "✅ Fixed: Added cpu_coregroup_mask fallback"
+            fi
+          fi
+          
+          # Fix 3: Ensure CONFIG_SCHED_MC is enabled (needed for cpu_coregroup_mask)
+          echo "CONFIG_SCHED_MC=y" >> arch/arm64/configs/vendor/shennong_GKI.config 2>/dev/null || true
+          
+          echo "✅ Source fixes applied!"
+      
       - name: 🔧 Integrate SukiSU Ultra
         working-directory: kernel
         run: |
@@ -153,6 +184,7 @@ jobs:
           CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
           CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
           CONFIG_CPU_IDLE=y
+          CONFIG_SCHED_MC=y
           CONFIG_IOSCHED_BFQ=y
           CONFIG_BFQ_GROUP_IOSCHED=y
           CONFIG_PM=y
@@ -184,6 +216,7 @@ jobs:
           CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
           CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
           CONFIG_CPU_IDLE=y
+          CONFIG_SCHED_MC=y
           CONFIG_IOSCHED_BFQ=y
           CONFIG_BFQ_GROUP_IOSCHED=y
           CONFIG_PM=y
@@ -212,6 +245,7 @@ jobs:
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
           CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_SCHED_MC=y
           CONFIG_IOSCHED_BFQ=y
           CONFIG_BFQ_GROUP_IOSCHED=y
           CONFIG_PM_WAKELOCKS_LIMIT=500
