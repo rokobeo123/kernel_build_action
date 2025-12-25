@@ -1,114 +1,51 @@
-name: Xiaomi 14 Pro Kernel (AngelBeats + SukiSU + SUSFS | GKI strict)
-
+name: Lint Check
 on:
-  workflow_dispatch:
-    inputs:
-      profile:
-        description: 'AngelBeats profile'
-        required: false
-        default: balanced
-        type: choice
-        options:
-          - balanced
-          - performance
-          - extreme_battery
+  pull_request:
+  push:
+    branches: main
+    paths:
+      - '.github/workflows/*.yml'
+      - 'actuon.yml'
+      - '.github/ISSUE_TEMPLATE/*.yml'
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
-
+  yaml-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        lint: [python, js]
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
 
-    - name: Set profile
-      run: |
-        echo "PROFILE=${{ inputs.profile }}" >> $GITHUB_ENV
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
-    - name: Free disk space
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-        sudo apt clean
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y \
-          bc bison build-essential ccache curl flex \
-          g++-multilib gcc-multilib git gnupg gperf \
-          lib32readline-dev lib32z1-dev liblz4-tool \
-          libncurses5-dev libssl-dev libxml2-utils \
-          lzop rsync xsltproc zip zlib1g-dev \
-          python3 python-is-python3 wget cpio kmod \
-          libelf-dev elfutils
+      - name: Setup (Python)
+        if: matrix.lint == 'python'
+        run: |
+          sudo apt install yamllint
 
-    - name: Clone kernel source
-      run: |
-        git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
-          -b shennong-u-oss kernel
-        cd kernel
-        make kernelversion || true
+      - name: Setup (JS)
+        if: matrix.lint == 'js'
+        run: |
+          yarn global add yaml-lint
 
-    - name: Clone Proton Clang
-      run: |
-        git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+      - name: Check yaml(Python)
+        if: matrix.lint == 'python'
+        run: |
+          A=$(find . | grep .yml)
+          /usr/bin/yamllint action.yml .github/dependabot.yml .github/ISSUE_TEMPLATE/common.yml
 
-    - name: Integrate SukiSU
-      working-directory: kernel
-      run: |
-        curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh \
-          | bash -s builtin
-
-    - name: Integrate SUSFS (fs + include)
-      working-directory: kernel
-      run: |
-        git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git \
-          -b gki-android14-6.1 /tmp/susfs
-        cp -rv /tmp/susfs/kernel_patches/fs/susfs fs/
-        cp -v /tmp/susfs/kernel_patches/include/linux/susfs*.h include/linux/
-
-    - name: AngelBeats config
-      working-directory: kernel
-      run: |
-        mkdir -p arch/arm64/configs/vendor
-        cat > arch/arm64/configs/vendor/angelbeats.config << 'EOF'
-CONFIG_KSU=y
-CONFIG_KSU_SUSFS=y
-CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-CONFIG_IOSCHED_BFQ=y
-CONFIG_ZRAM=y
-CONFIG_ZRAM_DEF_COMP_LZ4=y
-CONFIG_PM=y
-CONFIG_THERMAL=y
-EOF
-
-    - name: Merge GKI configs
-      working-directory: kernel
-      run: |
-        export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-        make O=out ARCH=arm64 gki_defconfig
-        scripts/kconfig/merge_config.sh -m \
-          out/.config \
-          arch/arm64/configs/vendor/shennong_GKI.config \
-          arch/arm64/configs/vendor/angelbeats.config
-        make O=out ARCH=arm64 olddefconfig
-
-    - name: Build kernel
-      working-directory: kernel
-      run: |
-        export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-        make -j$(nproc) O=out LLVM=1 LLVM_IAS=1
-
-    - name: Package AnyKernel3 (A/B auto)
-      run: |
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3
-        cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
-        cd AnyKernel3
-        zip -r9 ../AngelBeats-GKI-${{ env.PROFILE }}.zip *
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Xiaomi14Pro-Kernel
-        path: |
-          *.zip
+      - name: Check yaml(JS)
+        if: matrix.lint == 'js'
+        run: |
+          A=$(find . | grep .yml)
+          /usr/local/bin/yamllint $A
