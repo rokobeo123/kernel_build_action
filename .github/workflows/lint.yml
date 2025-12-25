@@ -42,7 +42,7 @@ jobs:
           sudo apt-get clean
           df -h
       
-      - name: 📦 Install dependencies (including libelf)
+      - name: 📦 Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -90,10 +90,10 @@ jobs:
           
           echo "✅ Kconfig files fixed!"
       
-      - name: 🩹 Create comprehensive kernel patches
+      - name: 🩹 Apply kernel source patches
         working-directory: kernel
         run: |
-          echo "🩹 Creating and applying kernel patches..."
+          echo "🩹 Applying kernel patches..."
           
           # Fix 1: Add missing of_fdt.h include to setup.c
           if [ -f "arch/arm64/kernel/setup.c" ]; then
@@ -125,15 +125,13 @@ jobs:
             echo "✅ Fixed topology.c"
           fi
           
-          # Verify all patches
           echo ""
           echo "Verifying patches..."
-          grep -n "of_fdt.h" arch/arm64/kernel/setup.c 2>/dev/null && echo "✓ setup.c patched"
-          grep -n "of_fdt.h" arch/arm64/kvm/pkvm.c 2>/dev/null && echo "✓ pkvm.c patched"
-          grep -n "arm_arch_timer.h" arch/arm64/kvm/arch_timer.c 2>/dev/null && echo "✓ arch_timer.c patched"
-          grep -n "cpu_cpu_mask" kernel/sched/topology.c 2>/dev/null && echo "✓ topology.c patched"
+          grep -n "of_fdt.h" arch/arm64/kernel/setup.c 2>/dev/null && echo "✓ setup.c OK"
+          grep -n "of_fdt.h" arch/arm64/kvm/pkvm.c 2>/dev/null && echo "✓ pkvm.c OK"
+          grep -n "arm_arch_timer.h" arch/arm64/kvm/arch_timer.c 2>/dev/null && echo "✓ arch_timer.c OK"
+          grep -n "cpu_cpu_mask" kernel/sched/topology.c 2>/dev/null && echo "✓ topology.c OK"
           echo ""
-          
           echo "✅ All patches applied!"
       
       - name: 🔧 Integrate SukiSU Ultra
@@ -435,7 +433,7 @@ jobs:
           - Schedutil CPU Governor
           
           📱 Device: Xiaomi 14 Pro (shennong)
-          🐧 Kernel: 6.1.118
+          🐧 Kernel: 6.1.x
           📅 Android: 14-15
           
           📥 INSTALLATION:
