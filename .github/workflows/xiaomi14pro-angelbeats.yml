@@ -36,7 +36,8 @@ jobs:
             lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev \
             libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
             pngcrush rsync schedtool squashfs-tools xsltproc zip \
-            zlib1g-dev python3 python-is-python3 wget cpio kmod
+            zlib1g-dev python3 python-is-python3 wget cpio kmod libelf-dev \
+            libssl-dev libncurses-dev
       
       - name: 📂 Clone kernel source
         run: |
@@ -45,7 +46,31 @@ jobs:
             -b shennong-u-oss \
             kernel
           cd kernel
-          make kernelversion 2>/dev/null || cat Makefile | grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" | head -3
+          git fetch --depth=1 origin shennong-s-oss 2>/dev/null || true
+          
+      - name: 🔧 Fix missing hwid driver
+        working-directory: kernel
+        run: |
+          # Check if hwid directory exists
+          if [ ! -d "drivers/misc/hwid" ]; then
+            echo "⚠️ hwid directory missing, creating dummy Kconfig"
+            mkdir -p drivers/misc/hwid
+            cat > drivers/misc/hwid/Kconfig << 'EOF'
+            # Dummy hwid Kconfig
+            config HWID_DUMMY
+                bool "Dummy HWID"
+                default n
+                help
+                    Dummy config for missing hwid driver
+            EOF
+            cat > drivers/misc/hwid/Makefile << 'EOF'
+            # Dummy hwid Makefile
+            # obj-$(CONFIG_HWID_DUMMY) += hwid.o
+            EOF
+            echo "✅ Created dummy hwid driver"
+          else
+            echo "✅ hwid driver exists"
+          fi
       
       - name: 🔧 Integrate SukiSU
         working-directory: kernel
@@ -54,29 +79,29 @@ jobs:
           if [ -d "KernelSU" ]; then
             echo "✅ SukiSU integrated!"
           else
-            echo "❌ Failed!"
+            echo "❌ Failed to integrate SukiSU!"
             exit 1
           fi
       
       - name: 📥 Clone SUSFS
         working-directory: kernel
         run: |
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1 susfs_source
           
-          # Copy SUSFS source files
-          if [ -d "susfs4ksu/ksu_susfs" ]; then
-            cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
-            cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
+          # Copy SUSFS files to KernelSU directory
+          if [ -d "susfs_source/ksu_susfs" ]; then
+            cp -rv susfs_source/ksu_susfs/* KernelSU/kernel/ || true
           fi
           
-          if [ -d "susfs4ksu/kernel_patches/ksu_susfs" ]; then
-            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
-            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
+          if [ -d "susfs_source/kernel_patches/ksu_susfs" ]; then
+            cp -rv susfs_source/kernel_patches/ksu_susfs/* KernelSU/kernel/ || true
           fi
           
-          find susfs4ksu -type f \( -name "*susfs*.c" -o -name "*susfs*.h" \) -exec cp -v {} KernelSU/kernel/ \; 2>/dev/null || true
+          # Find and copy any susfs files
+          find susfs_source -type f \( -name "*susfs*.c" -o -name "*susfs*.h" \) -exec cp -v {} KernelSU/kernel/ \; 2>/dev/null || true
           
           echo "✅ SUSFS files copied!"
+          ls -la KernelSU/kernel/*susfs* 2>/dev/null || echo "No susfs files found"
       
       - name: ⚡ Create battery configs
         working-directory: kernel
@@ -85,6 +110,7 @@ jobs:
           
           # Extreme Battery Config
           cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_extreme_battery.config
+          # KernelSU
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
@@ -96,106 +122,83 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KPM=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_CPU_IDLE=y
-          CONFIG_CPU_IDLE_GOV_MENU=y
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_DEFAULT_BFQ=y
+          
+          # Kernel Modules
+          CONFIG_MODULES=y
+          CONFIG_MODULE_UNLOAD=y
+          CONFIG_MODULE_FORCE_UNLOAD=y
+          
+          # Power Management
           CONFIG_PM=y
           CONFIG_PM_SLEEP=y
           CONFIG_PM_AUTOSLEEP=y
           CONFIG_PM_WAKELOCKS=y
           CONFIG_PM_WAKELOCKS_LIMIT=100
           CONFIG_PM_WAKELOCKS_GC=y
-          CONFIG_NO_HZ_FULL=y
-          CONFIG_NO_HZ_IDLE=y
+          
+          # CPU Frequency
+          CONFIG_CPU_FREQ=y
+          CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE=y
+          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+          
+          # CPU Idle
+          CONFIG_CPU_IDLE=y
+          CONFIG_CPU_IDLE_GOV_MENU=y
+          
+          # I/O Scheduler
+          CONFIG_IOSCHED_BFQ=y
+          CONFIG_BFQ_GROUP_IOSCHED=y
+          CONFIG_MQ_IOSCHED_DEADLINE=y
+          CONFIG_MQ_IOSCHED_KYBER=y
+          CONFIG_IOSCHED_DEADLINE=y
+          CONFIG_IOSCHED_CFQ=y
+          CONFIG_DEFAULT_BFQ=y
+          CONFIG_DEFAULT_IOSCHED="bfq"
+          
+          # Memory Management
           CONFIG_ZRAM=y
           CONFIG_ZRAM_WRITEBACK=y
           CONFIG_ZSMALLOC=y
           CONFIG_LZ4_COMPRESS=y
           CONFIG_LZ4_DECOMPRESS=y
+          
+          # Thermal
           CONFIG_THERMAL=y
           CONFIG_THERMAL_GOV_STEP_WISE=y
-          CONFIG_WIREGUARD=y
-          CONFIG_EOF
+          CONFIG_THERMAL_GOV_USER_SPACE=y
+          CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
           
-          # Balanced Config
-          cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_balanced.config
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KPM=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
+          # Networking
+          CONFIG_WIREGUARD=y
+          
+          # Debugging/Symbols
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
-          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-          CONFIG_CPU_IDLE=y
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_DEFAULT_BFQ=y
-          CONFIG_PM=y
-          CONFIG_PM_SLEEP=y
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_LIMIT=200
-          CONFIG_ZRAM=y
-          CONFIG_ZSMALLOC=y
-          CONFIG_LZ4_COMPRESS=y
-          CONFIG_THERMAL=y
-          CONFIG_THERMAL_GOV_STEP_WISE=y
-          CONFIG_WIREGUARD=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          
+          # Tickless
+          CONFIG_NO_HZ_IDLE=y
+          CONFIG_NO_HZ_FULL=y
+          CONFIG_NO_HZ=y
+          CONFIG_HIGH_RES_TIMERS=y
           CONFIG_EOF
+          
+          # Balanced Config (similar but with different limits)
+          cat arch/arm64/configs/vendor/angelbeats_extreme_battery.config \
+            | sed 's/CONFIG_PM_WAKELOCKS_LIMIT=100/CONFIG_PM_WAKELOCKS_LIMIT=200/' \
+            | sed 's/CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE/CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL/' \
+            > arch/arm64/configs/vendor/angelbeats_balanced.config
           
           # Performance Config
-          cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_performance.config
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KPM=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_PM_WAKELOCKS_LIMIT=500
-          CONFIG_ZRAM=y
-          CONFIG_LZ4_COMPRESS=y
-          CONFIG_THERMAL=y
-          CONFIG_WIREGUARD=y
-          CONFIG_EOF
+          cat arch/arm64/configs/vendor/angelbeats_extreme_battery.config \
+            | sed 's/CONFIG_PM_WAKELOCKS_LIMIT=100/CONFIG_PM_WAKELOCKS_LIMIT=500/' \
+            | sed 's/CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE/CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE/' \
+            | sed 's/CONFIG_CPU_IDLE_GOV_MENU=y/# CONFIG_CPU_IDLE_GOV_MENU is not set/' \
+            > arch/arm64/configs/vendor/angelbeats_performance.config
           
           echo "✅ Configs created!"
           ls -la arch/arm64/configs/vendor/angelbeats_*.config
@@ -204,9 +207,19 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
       
-      - name: ⚙️ Merge configs
+      - name: ⚙️ Merge configs and prepare build
         working-directory: kernel
         run: |
+          # First, create a minimal working config
+          make ARCH=arm64 defconfig gki_defconfig
+          
+          # Apply vendor config
+          if [ -f "arch/arm64/configs/vendor/shennong_GKI.config" ]; then
+            echo "Applying shennong_GKI.config"
+            cat arch/arm64/configs/vendor/shennong_GKI.config >> .config
+          fi
+          
+          # Apply battery profile config
           BATTERY_CONFIG="angelbeats_balanced.config"
           
           case "${{ inputs.profile }}" in
@@ -215,12 +228,13 @@ jobs:
             performance) BATTERY_CONFIG="angelbeats_performance.config" ;;
           esac
           
-          cat arch/arm64/configs/gki_defconfig \
-              arch/arm64/configs/vendor/shennong_GKI.config \
-              arch/arm64/configs/vendor/$BATTERY_CONFIG \
-              > .config
+          echo "Applying $BATTERY_CONFIG"
+          cat arch/arm64/configs/vendor/$BATTERY_CONFIG >> .config
           
-          echo "✅ Configs merged!"
+          # Update config
+          make ARCH=arm64 olddefconfig
+          
+          echo "✅ Config preparation complete!"
       
       - name: 🏗️ Build kernel
         working-directory: kernel
@@ -231,19 +245,32 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
           export LLVM=1
           export LLVM_IAS=1
           
-          make olddefconfig
-          make kernelversion
-          make -j$(nproc) 2>&1 | tee ../build.log
+          echo "🔧 Build environment:"
+          echo "CC: $(which clang)"
+          echo "PATH: $PATH"
+          echo "ARCH: $ARCH"
           
-          if [ -f arch/arm64/boot/Image.gz ]; then
+          # Show kernel version
+          make kernelversion
+          
+          # Build with verbose output
+          echo "🚀 Starting build..."
+          make -j$(nproc --all) 2>&1 | tee ../build.log
+          
+          if [ -f "arch/arm64/boot/Image.gz" ]; then
             echo "✅ Build successful!"
             ls -lh arch/arm64/boot/Image.gz
+            echo "Build size: $(du -h arch/arm64/boot/Image.gz | cut -f1)"
           else
             echo "❌ Build failed!"
+            echo "=== Last 100 lines of build log ==="
             tail -100 ../build.log
+            echo "=== Checking for common issues ==="
+            ls -la arch/arm64/boot/ 2>/dev/null || echo "No boot directory"
             exit 1
           fi
       
@@ -251,65 +278,141 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3
           cd AnyKernel3
+          
+          # Clean any existing files
+          rm -f Image.gz dtb *.zip
+          
+          # Copy kernel image
           cp ../kernel/arch/arm64/boot/Image.gz ./
           
+          # Check if image was copied
+          if [ ! -f "Image.gz" ]; then
+            echo "❌ Kernel image not found!"
+            exit 1
+          fi
+          
+          echo "✅ Kernel image size: $(du -h Image.gz | cut -f1)"
+          
+          # Create anykernel.sh
           cat << 'AKEOF' > anykernel.sh
-          properties() { '
-          kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=shennong
-          device.name2=Xiaomi 14 Pro
-          device.name3=2311DRN47C
-          supported.versions=14-15
-          '; }
+          #!/bin/sh
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          
+          ## AnyKernel setup
+          begin() {
+            ui_print " "
+            ui_print "╔══════════════════════════════════════╗"
+            ui_print "║     AngelBeats Kernel for Xiaomi     ║"
+            ui_print "║           14 Pro (shennong)          ║"
+            ui_print "╚══════════════════════════════════════╝"
+            ui_print " "
+            ui_print "⊳ Profile: $PROFILE"
+            ui_print "⊳ Features: SukiSU + SUSFS"
+            ui_print " "
+          }
+          
+          ## AnyKernel properties
+          properties() {
+            kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
+            do.devicecheck=1
+            do.modules=0
+            do.systemless=1
+            do.cleanup=1
+            do.cleanuponabort=0
+            device.name1=shennong
+            device.name2=2311DRN47C
+            device.name3=Xiaomi 14 Pro
+            supported.versions=14-15
+            supported.patchlevels=
+          }
+          
+          ## AnyKernel install
           block=/dev/block/by-name/boot;
-          is_slot_device=auto;
+          is_slot_device=0;
           ramdisk_compression=auto;
+          
           . tools/ak3-core.sh;
+          
+          # Set profile
+          PROFILE="$PROFILE"
+          
+          begin;
           dump_boot;
+          
+          ui_print "⊳ Writing kernel...";
           write_boot;
+          
+          ui_print " ";
+          ui_print "✅ AngelBeats Kernel installed successfully!";
+          ui_print " ";
           AKEOF
           
+          # Make script executable
+          chmod +x anykernel.sh
+          
+          # Create zip
           PROFILE="${{ inputs.profile }}"
           DATE=$(date +%Y%m%d-%H%M)
-          ZIPNAME="AngelBeats-SukiSU-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
+          ZIPNAME="AngelBeats-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
           
-          zip -r9 "../${ZIPNAME}" * -x .git README.md *placeholder
+          zip -r9 "../${ZIPNAME}" * -x .git README.md .github/*
           
           cd ..
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
           
+          # Create info file
           cat << 'INFOEOF' > KERNEL_INFO.txt
-          AngelBeats-Style Kernel for Xiaomi 14 Pro
+          ┌─────────────────────────────────────────────┐
+          │   AngelBeats Kernel for Xiaomi 14 Pro       │
+          │           (shennong/2311DRN47C)             │
+          └─────────────────────────────────────────────┘
           
-          Features:
-          - SukiSU Ultra root
-          - SUSFS v2.0.0
-          - KPM + KProbes
-          - Battery optimization
-          - BFQ I/O Scheduler
+          📋 Features:
+          • SukiSU Ultra Root Support
+          • SUSFS v2.0.0 (Systemless Overlay)
+          • KernelSU Integration
+          • Battery Optimization Profiles
+          • BFQ I/O Scheduler
+          • WireGuard VPN
+          • ZRAM Compression
           
-          Device: Xiaomi 14 Pro (shennong)
-          Kernel: 6.1.118
+          ⚡ Profiles:
+          • Extreme Battery: Maximum power saving
+          • Balanced: Balanced performance/battery
+          • Performance: Maximum performance
           
-          Flash via TWRP or Kernel Manager
+          📱 Device: Xiaomi 14 Pro (shennong)
+          🔧 Kernel: 6.1.x
+          📦 Profile: ${{ inputs.profile }}
+          
+          ⚠️  Installation:
+          1. Backup current kernel/boot
+          2. Flash in TWRP or KernelFlasher
+          3. Reboot and enjoy!
+          
+          🐛 Report issues:
+          • Include full logcat
+          • Mention profile used
+          • Device state before flash
           INFOEOF
       
-      - name: 📤 Upload
+      - name: 📤 Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-14-Pro-Kernel-${{ inputs.profile }}
+          name: AngelBeats-Xiaomi14Pro-${{ inputs.profile }}
           path: |
-            *.zip
+            ${{ env.ZIPNAME }}
             KERNEL_INFO.txt
             build.log
+          retention-days: 7
       
-      - name: 🎉 Complete
+      - name: 🎉 Build Complete
         run: |
+          echo "========================================"
           echo "✅ BUILD SUCCESSFUL!"
+          echo "========================================"
           echo "Kernel: ${{ env.ZIPNAME }}"
           echo "Profile: ${{ inputs.profile }}"
+          echo "Date: $(date)"
+          echo "========================================"
