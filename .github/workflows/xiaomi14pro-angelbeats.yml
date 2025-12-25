@@ -1,126 +1,197 @@
-name: 🔋 Xiaomi 14 Pro - Ultimate AngelBeats (SukiSU + SUSFS)
+name: Xiaomi 14 Pro Kernel (SukiSU + SUSFS + AnyKernel3)
 
 on:
   workflow_dispatch:
     inputs:
       profile:
-        description: 'Select AngelBeats Profile'
-        required: true
-        default: 'balanced'
+        description: 'Battery profile'
+        required: false
+        default: balanced
         type: choice
-        options: [extreme_battery, balanced, performance]
+        options:
+          - balanced
+          - performance
+          - extreme_battery
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    name: Build Kernel
+
     steps:
-      - name: 📥 Setup Tools & Source
-        run: |
-          sudo apt-get update && sudo apt-get install -y bc bison build-essential curl flex git gnupg gperf libssl-dev libxml2-utils lzop python3 zip zlib1g-dev cpio kmod libelf-dev
-          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource -b shennong-u-oss kernel
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1 susfs
+    # ================= BASIC =================
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: 🩹 Phase 1: Fix Xiaomi & Inject SUSFS
-        working-directory: kernel
-        run: |
-          # 1. Fix Xiaomi Header Breakage
-          sed -i '1i #include <linux/of_fdt.h>' arch/arm64/kernel/setup.c
-          sed -i 's/cpu_coregroup_mask/cpu_cpu_mask/g' kernel/sched/topology.c
-          
-          # 2. Inject SUSFS Source Files (The 'Dictionary')
-          cp -rv ../susfs/kernel_patches/fs/* fs/
-          cp -rv ../susfs/kernel_patches/include/linux/* include/linux/
+    - name: Set profile
+      run: |
+        echo "PROFILE=${{ inputs.profile || 'balanced' }}" >> $GITHUB_ENV
 
-      - name: 🚀 Phase 2: SukiSU Hooks
-        working-directory: kernel
-        run: |
-          # Links the injected SUSFS files into the kernel core
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+    - name: Free disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+        sudo apt clean
+        df -h
 
-      - name: ⚙️ Phase 3: Create Full Custom Config
-        working-directory: kernel
-        run: |
-          mkdir -p arch/arm64/configs/vendor
-          
-          # Building the combined config (SukiSU + SUSFS + AngelBeats)
-          cat > arch/arm64/configs/vendor/angelbeats_final.config << 'EOF'
-          # --- SukiSU & SUSFS Base ---
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KPM=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          
-          # --- AngelBeats Shared Optimization ---
-          CONFIG_CPU_IDLE=y
-          CONFIG_SCHED_MC=y
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_ZRAM=y
-          CONFIG_LZ4_COMPRESS=y
-          CONFIG_THERMAL=y
-          CONFIG_WIREGUARD=y
-          EOF
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          bc bison build-essential ccache curl flex \
+          g++-multilib gcc-multilib git gnupg gperf \
+          lib32readline-dev lib32z1-dev liblz4-tool \
+          libncurses5-dev libssl-dev libxml2-utils \
+          lzop pngcrush rsync squashfs-tools xsltproc \
+          zip zlib1g-dev python3 python-is-python3 \
+          wget cpio kmod libelf-dev elfutils
 
-          # Append your specific Profile tweaks
-          if [ "${{ github.event.inputs.profile }}" = "extreme_battery" ]; then
-            cat >> arch/arm64/configs/vendor/angelbeats_final.config << 'EOF'
-          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_PM_WAKELOCKS_LIMIT=100
-          EOF
-          elif [ "${{ github.event.inputs.profile }}" = "balanced" ]; then
-            cat >> arch/arm64/configs/vendor/angelbeats_final.config << 'EOF'
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_PM_WAKELOCKS_LIMIT=200
-          EOF
-          else
-            cat >> arch/arm64/configs/vendor/angelbeats_final.config << 'EOF'
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_PM_WAKELOCKS_LIMIT=500
-          EOF
+    # ================= KERNEL SOURCE =================
+    - name: Clone kernel source
+      run: |
+        git clone --depth=1 \
+          https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
+          -b shennong-u-oss kernel
+        cd kernel
+        make kernelversion || true
+
+    # ================= FIXES FOR 6.1 =================
+    - name: Fix setup.c (early_init_dt_scan)
+      working-directory: kernel
+      run: |
+        FILE=arch/arm64/kernel/setup.c
+        if grep -q "early_init_dt_scan(" "$FILE"; then
+          sed -i 's/early_init_dt_scan([^)]*);/early_init_dt_scan_nodes();/g' "$FILE"
+        fi
+
+    - name: Fix topology.c (cpu_coregroup_mask)
+      working-directory: kernel
+      run: |
+        FILE=kernel/sched/topology.c
+        if grep -q "cpu_coregroup_mask" "$FILE"; then
+          if ! grep -q "#define cpu_coregroup_mask" "$FILE"; then
+            sed -i '/^#include/a \
+#ifndef cpu_coregroup_mask\n#define cpu_coregroup_mask(cpu) cpu_cpu_mask(cpu)\n#endif\n' "$FILE"
           fi
+        fi
 
-          # Official China-Style Merge
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-          ARCH=arm64 ./scripts/kconfig/merge_config.sh -m -O . \
-            arch/arm64/configs/gki_defconfig \
+    # ================= SukiSU =================
+    - name: Integrate SukiSU Ultra
+      working-directory: kernel
+      run: |
+        curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh | bash -s builtin
+        test -d KernelSU
+
+    # ================= SUSFS FULL =================
+    - name: Integrate SUSFS (FULL)
+      working-directory: kernel
+      run: |
+        git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
+
+        # KernelSU side
+        cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/
+        cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/
+
+        # Kernel fs/ include/ patches
+        cp -rv susfs4ksu/kernel_patches/fs/* fs/
+        cp -rv susfs4ksu/kernel_patches/include/* include/
+
+    # ================= CONFIG =================
+    - name: Create vendor config
+      working-directory: kernel
+      run: |
+        mkdir -p arch/arm64/configs/vendor
+
+        cat > arch/arm64/configs/vendor/angelbeats.config << EOF
+        CONFIG_KSU=y
+        CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+        CONFIG_KSU_SUSFS_SUS_PATH=y
+        CONFIG_KSU_SUSFS_SUS_MOUNT=y
+        CONFIG_KSU_SUSFS_SUS_KSTAT=y
+        CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+        CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+        CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+        CONFIG_KSU_SUSFS_ENABLE_LOG=y
+
+        CONFIG_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        CONFIG_HAVE_KPROBES=y
+        CONFIG_KALLSYMS=y
+        CONFIG_KALLSYMS_ALL=y
+
+        CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+        CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+        CONFIG_IOSCHED_BFQ=y
+        CONFIG_ZRAM=y
+        CONFIG_LZ4_COMPRESS=y
+        EOF
+
+    - name: Merge defconfig
+      working-directory: kernel
+      run: |
+        cat arch/arm64/configs/gki_defconfig \
             arch/arm64/configs/vendor/shennong_GKI.config \
-            arch/arm64/configs/vendor/angelbeats_final.config
-          
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+            arch/arm64/configs/vendor/angelbeats.config \
+            > .config
 
-      - name: 🏗️ Phase 4: Compile & Package
-        working-directory: kernel
-        run: |
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-          make -j$(nproc) ARCH=arm64 LLVM=1 LLVM_IAS=1 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee ../build.log
-          
-          # Package into AnyKernel3
-          cd ..
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3
-          cp kernel/arch/arm64/boot/Image.gz AnyKernel3/
-          cd AnyKernel3 && zip -r9 "../AngelBeats-${{ github.event.inputs.profile }}.zip" *
+    # ================= TOOLCHAIN =================
+    - name: Clone Proton Clang
+      run: |
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-      - name: 📤 Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: AngelBeats-Xiaomi14Pro-${{ github.event.inputs.profile }}
-          path: |
-            *.zip
-            build.log
+    # ================= BUILD =================
+    - name: Build kernel
+      working-directory: kernel
+      run: |
+        export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CC=clang
+        export LLVM=1
+        export LLVM_IAS=1
+
+        make olddefconfig
+        make -j$(nproc) 2>&1 | tee ../build.log
+
+        test -f arch/arm64/boot/Image.gz
+
+    # ================= ANYKERNEL3 =================
+    - name: Package AnyKernel3
+      run: |
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3
+        cp kernel/arch/arm64/boot/Image.gz AnyKernel3/
+
+        cat > AnyKernel3/anykernel.sh << 'EOF'
+        properties() { '
+        kernel.string=AngelBeats-SukiSU-SUSFS
+        do.devicecheck=1
+        do.modules=0
+        do.systemless=1
+        device.name1=shennong
+        device.name2=Xiaomi 14 Pro
+        supported.versions=14-15
+        '; }
+        block=/dev/block/by-name/boot;
+        is_slot_device=auto;
+        ramdisk_compression=auto;
+        . tools/ak3-core.sh;
+        dump_boot;
+        write_boot;
+        EOF
+
+        DATE=$(date +%Y%m%d-%H%M)
+        ZIP=AngelBeats-Xiaomi14Pro-SUSFS-${{ env.PROFILE }}-${DATE}.zip
+        cd AnyKernel3
+        zip -r9 ../$ZIP *
+        cd ..
+        echo "ZIPNAME=$ZIP" >> $GITHUB_ENV
+
+    # ================= ARTIFACT =================
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Xiaomi14Pro-SUSFS
+        path: |
+          *.zip
+          build.log
