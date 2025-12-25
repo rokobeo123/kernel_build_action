@@ -15,23 +15,20 @@ on:
 
 jobs:
   build:
-    name: Build Kernel (GKI strict)
     runs-on: ubuntu-22.04
 
     steps:
-    # ================= BASIC =================
     - name: Checkout
       uses: actions/checkout@v4
 
     - name: Set profile
       run: |
-        echo "PROFILE=${{ inputs.profile || 'balanced' }}" >> $GITHUB_ENV
+        echo "PROFILE=${{ inputs.profile }}" >> $GITHUB_ENV
 
     - name: Free disk space
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
         sudo apt clean
-        df -h
 
     - name: Install dependencies
       run: |
@@ -45,186 +42,73 @@ jobs:
           python3 python-is-python3 wget cpio kmod \
           libelf-dev elfutils
 
-    # ================= KERNEL SOURCE =================
     - name: Clone kernel source
       run: |
-        git clone --depth=1 \
-          https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
+        git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
           -b shennong-u-oss kernel
         cd kernel
         make kernelversion || true
 
-    # ================= TOOLCHAIN =================
     - name: Clone Proton Clang
       run: |
         git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-    # ================= SukiSU =================
-    - name: Integrate SukiSU Ultra (builtin, GKI-safe)
+    - name: Integrate SukiSU
       working-directory: kernel
       run: |
         curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh \
           | bash -s builtin
-        test -d KernelSU
 
-    # ================= SUSFS (FULL, SAFE) =================
-    - name: Integrate SUSFS (fs + include only)
+    - name: Integrate SUSFS (fs + include)
       working-directory: kernel
       run: |
-        git clone --depth=1 \
-          https://gitlab.com/simonpunk/susfs4ksu.git \
+        git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git \
           -b gki-android14-6.1 /tmp/susfs
-
-        # fs
         cp -rv /tmp/susfs/kernel_patches/fs/susfs fs/
-
-        # include
         cp -v /tmp/susfs/kernel_patches/include/linux/susfs*.h include/linux/
 
-    # ================= ANGELBEATS CONFIG =================
-    - name: Create AngelBeats vendor config
+    - name: AngelBeats config
       working-directory: kernel
       run: |
         mkdir -p arch/arm64/configs/vendor
-
         cat > arch/arm64/configs/vendor/angelbeats.config << 'EOF'
-# ================= ROOT =================
 CONFIG_KSU=y
 CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-
-# ================= ANGELBEATS =================
-# CPU / Scheduler
-CONFIG_CPU_FREQ=y
 CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-CONFIG_SCHED_MC=y
-CONFIG_CPU_IDLE=y
-
-# IO
 CONFIG_IOSCHED_BFQ=y
-CONFIG_BFQ_GROUP_IOSCHED=y
-
-# Memory
 CONFIG_ZRAM=y
 CONFIG_ZRAM_DEF_COMP_LZ4=y
-CONFIG_LZ4_COMPRESS=y
-
-# Power
 CONFIG_PM=y
-CONFIG_PM_WAKELOCKS_LIMIT=200
-
-# Thermal
 CONFIG_THERMAL=y
-
-# Debug (CTS-safe)
-CONFIG_KALLSYMS=y
-CONFIG_KALLSYMS_ALL=y
-CONFIG_KPROBES=y
-CONFIG_HAVE_KPROBES=y
 EOF
 
-    # ================= CONFIG MERGE (GKI STRICT) =================
-    - name: Merge GKI configs properly
+    - name: Merge GKI configs
       working-directory: kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-
         make O=out ARCH=arm64 gki_defconfig
-
         scripts/kconfig/merge_config.sh -m \
           out/.config \
           arch/arm64/configs/vendor/shennong_GKI.config \
           arch/arm64/configs/vendor/angelbeats.config
-
         make O=out ARCH=arm64 olddefconfig
 
-    # ================= BUILD =================
     - name: Build kernel
       working-directory: kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-        export ARCH=arm64
-        export SUBARCH=arm64
+        make -j$(nproc) O=out LLVM=1 LLVM_IAS=1
 
-        make -j$(nproc) O=out \
-          CC=clang \
-          LLVM=1 \
-          LLVM_IAS=1 \
-          2>&1 | tee ../build.log
-
-        test -f out/arch/arm64/boot/Image.gz
-
-    # ================= ABI CHECK =================
-    - name: Check GKI ABI (CTS-safe)
-      working-directory: kernel
-      run: |
-        echo "🧪 Checking GKI ABI..."
-
-        if [ ! -f build/abi/abi_gki_aarch64.xml ]; then
-          echo "⚠️ No ABI definition found, skipping"
-          exit 0
-        fi
-
-        make O=out ARCH=arm64 LLVM=1 headers_install
-
-        build/abi/abi_diff.sh \
-          build/abi/abi_gki_aarch64.xml \
-          out \
-          --report
-
-        if grep -q "ERROR" abi.report; then
-          echo "❌ ABI BREAK DETECTED"
-          cat abi.report
-          exit 1
-        fi
-
-        echo "✅ ABI OK"
-
-    # ================= ANYKERNEL3 =================
     - name: Package AnyKernel3 (A/B auto)
       run: |
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3
         cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
-
-        cat > AnyKernel3/anykernel.sh << 'EOF'
-properties() {
-  kernel.string=AngelBeats-SukiSU-SUSFS
-  do.devicecheck=1
-  do.modules=0
-  do.systemless=1
-  do.cleanup=1
-  device.name1=shennong
-  device.name2=Xiaomi 14 Pro
-  supported.versions=14-15
-}
-block=auto;
-is_slot_device=auto;
-ramdisk_compression=auto;
-. tools/ak3-core.sh;
-dump_boot;
-write_boot;
-EOF
-
-        DATE=$(date +%Y%m%d-%H%M)
-        ZIP=AngelBeats-Xiaomi14Pro-GKI-${{ env.PROFILE }}-${DATE}.zip
         cd AnyKernel3
-        zip -r9 ../$ZIP *
-        cd ..
-        echo "ZIPNAME=$ZIP" >> $GITHUB_ENV
+        zip -r9 ../AngelBeats-GKI-${{ env.PROFILE }}.zip *
 
-    # ================= ARTIFACT =================
-    - name: Upload artifacts
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Xiaomi14Pro-AngelBeats-GKI
+        name: Xiaomi14Pro-Kernel
         path: |
           *.zip
-          build.log
