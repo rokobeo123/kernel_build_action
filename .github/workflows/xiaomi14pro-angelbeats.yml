@@ -47,7 +47,7 @@ jobs:
             kernel
           cd kernel
           git fetch --depth=1 origin shennong-s-oss 2>/dev/null || true
-          
+      
       - name: 🔧 Fix missing hwid driver
         working-directory: kernel
         run: |
@@ -55,18 +55,23 @@ jobs:
           if [ ! -d "drivers/misc/hwid" ]; then
             echo "⚠️ hwid directory missing, creating dummy Kconfig"
             mkdir -p drivers/misc/hwid
-            cat > drivers/misc/hwid/Kconfig << 'EOF'
+            
+            # Create Kconfig with proper heredoc
+            cat > drivers/misc/hwid/Kconfig << 'KCONFIG_EOF'
             # Dummy hwid Kconfig
             config HWID_DUMMY
                 bool "Dummy HWID"
                 default n
                 help
                     Dummy config for missing hwid driver
-            EOF
-            cat > drivers/misc/hwid/Makefile << 'EOF'
+            KCONFIG_EOF
+            
+            # Create Makefile with proper heredoc
+            cat > drivers/misc/hwid/Makefile << 'MAKEFILE_EOF'
             # Dummy hwid Makefile
             # obj-$(CONFIG_HWID_DUMMY) += hwid.o
-            EOF
+            MAKEFILE_EOF
+            
             echo "✅ Created dummy hwid driver"
           else
             echo "✅ hwid driver exists"
@@ -90,11 +95,11 @@ jobs:
           
           # Copy SUSFS files to KernelSU directory
           if [ -d "susfs_source/ksu_susfs" ]; then
-            cp -rv susfs_source/ksu_susfs/* KernelSU/kernel/ || true
+            cp -rv susfs_source/ksu_susfs/* KernelSU/kernel/ 2>/dev/null || true
           fi
           
           if [ -d "susfs_source/kernel_patches/ksu_susfs" ]; then
-            cp -rv susfs_source/kernel_patches/ksu_susfs/* KernelSU/kernel/ || true
+            cp -rv susfs_source/kernel_patches/ksu_susfs/* KernelSU/kernel/ 2>/dev/null || true
           fi
           
           # Find and copy any susfs files
@@ -109,7 +114,7 @@ jobs:
           mkdir -p arch/arm64/configs/vendor
           
           # Extreme Battery Config
-          cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_extreme_battery.config
+          cat > arch/arm64/configs/vendor/angelbeats_extreme_battery.config << 'CONFIG_EOF'
           # KernelSU
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -187,18 +192,152 @@ jobs:
           CONFIG_HIGH_RES_TIMERS=y
           CONFIG_EOF
           
-          # Balanced Config (similar but with different limits)
-          cat arch/arm64/configs/vendor/angelbeats_extreme_battery.config \
-            | sed 's/CONFIG_PM_WAKELOCKS_LIMIT=100/CONFIG_PM_WAKELOCKS_LIMIT=200/' \
-            | sed 's/CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE/CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL/' \
-            > arch/arm64/configs/vendor/angelbeats_balanced.config
+          # Balanced Config
+          cat > arch/arm64/configs/vendor/angelbeats_balanced.config << 'CONFIG_EOF'
+          # KernelSU
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          
+          # Kernel Modules
+          CONFIG_MODULES=y
+          CONFIG_MODULE_UNLOAD=y
+          CONFIG_MODULE_FORCE_UNLOAD=y
+          
+          # Power Management
+          CONFIG_PM=y
+          CONFIG_PM_SLEEP=y
+          CONFIG_PM_AUTOSLEEP=y
+          CONFIG_PM_WAKELOCKS=y
+          CONFIG_PM_WAKELOCKS_LIMIT=200
+          CONFIG_PM_WAKELOCKS_GC=y
+          
+          # CPU Frequency
+          CONFIG_CPU_FREQ=y
+          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+          
+          # CPU Idle
+          CONFIG_CPU_IDLE=y
+          CONFIG_CPU_IDLE_GOV_MENU=y
+          
+          # I/O Scheduler
+          CONFIG_IOSCHED_BFQ=y
+          CONFIG_BFQ_GROUP_IOSCHED=y
+          CONFIG_MQ_IOSCHED_DEADLINE=y
+          CONFIG_MQ_IOSCHED_KYBER=y
+          CONFIG_IOSCHED_DEADLINE=y
+          CONFIG_IOSCHED_CFQ=y
+          CONFIG_DEFAULT_BFQ=y
+          CONFIG_DEFAULT_IOSCHED="bfq"
+          
+          # Memory Management
+          CONFIG_ZRAM=y
+          CONFIG_ZRAM_WRITEBACK=y
+          CONFIG_ZSMALLOC=y
+          CONFIG_LZ4_COMPRESS=y
+          CONFIG_LZ4_DECOMPRESS=y
+          
+          # Thermal
+          CONFIG_THERMAL=y
+          CONFIG_THERMAL_GOV_STEP_WISE=y
+          CONFIG_THERMAL_GOV_USER_SPACE=y
+          CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
+          
+          # Networking
+          CONFIG_WIREGUARD=y
+          
+          # Debugging/Symbols
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          
+          # Tickless
+          CONFIG_NO_HZ_IDLE=y
+          CONFIG_NO_HZ_FULL=y
+          CONFIG_NO_HZ=y
+          CONFIG_HIGH_RES_TIMERS=y
+          CONFIG_EOF
           
           # Performance Config
-          cat arch/arm64/configs/vendor/angelbeats_extreme_battery.config \
-            | sed 's/CONFIG_PM_WAKELOCKS_LIMIT=100/CONFIG_PM_WAKELOCKS_LIMIT=500/' \
-            | sed 's/CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE/CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE/' \
-            | sed 's/CONFIG_CPU_IDLE_GOV_MENU=y/# CONFIG_CPU_IDLE_GOV_MENU is not set/' \
-            > arch/arm64/configs/vendor/angelbeats_performance.config
+          cat > arch/arm64/configs/vendor/angelbeats_performance.config << 'CONFIG_EOF'
+          # KernelSU
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          
+          # Kernel Modules
+          CONFIG_MODULES=y
+          CONFIG_MODULE_UNLOAD=y
+          CONFIG_MODULE_FORCE_UNLOAD=y
+          
+          # Power Management
+          CONFIG_PM=y
+          CONFIG_PM_SLEEP=y
+          CONFIG_PM_WAKELOCKS=y
+          CONFIG_PM_WAKELOCKS_LIMIT=500
+          
+          # CPU Frequency
+          CONFIG_CPU_FREQ=y
+          CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+          
+          # CPU Idle
+          CONFIG_CPU_IDLE=y
+          
+          # I/O Scheduler
+          CONFIG_IOSCHED_BFQ=y
+          CONFIG_BFQ_GROUP_IOSCHED=y
+          CONFIG_MQ_IOSCHED_DEADLINE=y
+          CONFIG_MQ_IOSCHED_KYBER=y
+          CONFIG_IOSCHED_DEADLINE=y
+          CONFIG_DEFAULT_BFQ=y
+          CONFIG_DEFAULT_IOSCHED="bfq"
+          
+          # Memory Management
+          CONFIG_ZRAM=y
+          CONFIG_ZSMALLOC=y
+          CONFIG_LZ4_COMPRESS=y
+          
+          # Thermal
+          CONFIG_THERMAL=y
+          CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
+          
+          # Networking
+          CONFIG_WIREGUARD=y
+          
+          # Debugging/Symbols
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          
+          # Tickless
+          CONFIG_NO_HZ_IDLE=y
+          CONFIG_HIGH_RES_TIMERS=y
+          CONFIG_EOF
           
           echo "✅ Configs created!"
           ls -la arch/arm64/configs/vendor/angelbeats_*.config
@@ -211,9 +350,9 @@ jobs:
         working-directory: kernel
         run: |
           # First, create a minimal working config
-          make ARCH=arm64 defconfig gki_defconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig gki_defconfig
           
-          # Apply vendor config
+          # Apply vendor config if exists
           if [ -f "arch/arm64/configs/vendor/shennong_GKI.config" ]; then
             echo "Applying shennong_GKI.config"
             cat arch/arm64/configs/vendor/shennong_GKI.config >> .config
@@ -232,9 +371,11 @@ jobs:
           cat arch/arm64/configs/vendor/$BATTERY_CONFIG >> .config
           
           # Update config
-          make ARCH=arm64 olddefconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           
           echo "✅ Config preparation complete!"
+          echo "Checking KSU config..."
+          grep -i ksu .config || echo "KSU not found in config"
       
       - name: 🏗️ Build kernel
         working-directory: kernel
@@ -251,7 +392,6 @@ jobs:
           
           echo "🔧 Build environment:"
           echo "CC: $(which clang)"
-          echo "PATH: $PATH"
           echo "ARCH: $ARCH"
           
           # Show kernel version
@@ -269,8 +409,6 @@ jobs:
             echo "❌ Build failed!"
             echo "=== Last 100 lines of build log ==="
             tail -100 ../build.log
-            echo "=== Checking for common issues ==="
-            ls -la arch/arm64/boot/ 2>/dev/null || echo "No boot directory"
             exit 1
           fi
       
@@ -294,7 +432,7 @@ jobs:
           echo "✅ Kernel image size: $(du -h Image.gz | cut -f1)"
           
           # Create anykernel.sh
-          cat << 'AKEOF' > anykernel.sh
+          cat > anykernel.sh << 'AKEOF'
           #!/bin/sh
           # AnyKernel3 Ramdisk Mod Script
           # osm0sis @ xda-developers
@@ -362,7 +500,7 @@ jobs:
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
           
           # Create info file
-          cat << 'INFOEOF' > KERNEL_INFO.txt
+          cat > KERNEL_INFO.txt << 'INFOEOF'
           ┌─────────────────────────────────────────────┐
           │   AngelBeats Kernel for Xiaomi 14 Pro       │
           │           (shennong/2311DRN47C)             │
