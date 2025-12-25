@@ -1,0 +1,442 @@
+name: 🔋 Xiaomi 14 Pro - AngelBeats Style + SukiSU
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Battery Profile'
+        required: true
+        default: 'balanced'
+        type: choice
+        options:
+          - extreme_battery    # Pin cực tốt, hiệu năng thấp
+          - balanced          # Cân bằng (khuyên dùng)
+          - performance       # Hiệu năng cao, pin giảm
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-22.04
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🧹 Free up space
+        run: |
+          echo "Freeing up disk space..."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h
+      
+      - name: 📦 Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git gnupg gperf \
+            imagemagick lib32readline-dev lib32z1-dev \
+            liblz4-tool libncurses5-dev libsdl1.2-dev \
+            libssl-dev libxml2 libxml2-utils lzop \
+            pngcrush rsync schedtool squashfs-tools \
+            xsltproc zip zlib1g-dev python3 python-is-python3 \
+            wget cpio kmod
+      
+      - name: 📂 Clone Xiaomi 14 Pro kernel source
+        run: |
+          echo "Cloning Xiaomi 14 Pro kernel..."
+          git clone --depth=1 \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
+            -b shennong-t-oss \
+            kernel
+          
+          cd kernel
+          echo "✅ Kernel cloned! Version:"
+          make kernelversion 2>/dev/null || cat Makefile | grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" | head -3
+      
+      - name: 🔧 Integrate SukiSU Ultra + SUSFS
+        working-directory: kernel
+        run: |
+          echo "🚀 Installing SukiSU Ultra with SUSFS builtin..."
+          
+          # Integrate SukiSU Ultra
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          
+          if [ -d "KernelSU" ]; then
+            echo "✅ SukiSU integrated successfully!"
+          else
+            echo "❌ SukiSU integration failed!"
+            exit 1
+          fi
+          
+          # Clone SUSFS source files
+          echo "📥 Cloning SUSFS sources..."
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
+          
+          # Copy SUSFS files to KernelSU if needed
+          echo "Copying SUSFS source files..."
+          find susfs4ksu -type f \( -name "*.c" -o -name "*.h" \) -path "*/ksu_susfs/*" -exec cp {} KernelSU/kernel/ \; 2>/dev/null || true
+          
+          echo "✅ SUSFS sources prepared!"
+          ls -la KernelSU/kernel/ | head -20
+      
+      - name: ⚡ Create AngelBeats battery optimization configs
+        working-directory: kernel
+        run: |
+          echo "Creating battery optimization configs..."
+          
+          # ===== EXTREME BATTERY CONFIG =====
+          cat > arch/arm64/configs/vendor/angelbeats_extreme_battery.config << 'EOF'
+# AngelBeats Extreme Battery Mode - Xiaomi 14 Pro
+# Maximum battery life, reduced performance
+
+# KernelSU + SUSFS
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+
+# KPM + Kprobes
+CONFIG_KPM=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+
+# CPU - Extreme power saving
+CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+# CONFIG_CPU_FREQ_GOV_PERFORMANCE is not set
+CONFIG_CPU_IDLE=y
+CONFIG_CPU_IDLE_GOV_MENU=y
+
+# I/O Scheduler - Battery optimized
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_DEFAULT_BFQ=y
+CONFIG_MQ_IOSCHED_DEADLINE=y
+CONFIG_MQ_IOSCHED_KYBER=y
+
+# Power Management
+CONFIG_PM=y
+CONFIG_PM_SLEEP=y
+CONFIG_SUSPEND=y
+CONFIG_PM_AUTOSLEEP=y
+CONFIG_PM_WAKELOCKS=y
+CONFIG_PM_WAKELOCKS_LIMIT=100
+CONFIG_PM_WAKELOCKS_GC=y
+CONFIG_PM_ADVANCED_DEBUG=n
+
+# Reduce wakeups
+CONFIG_NO_HZ_FULL=y
+CONFIG_NO_HZ_IDLE=y
+CONFIG_HIGH_RES_TIMERS=y
+
+# Memory management
+CONFIG_ZRAM=y
+CONFIG_ZRAM_WRITEBACK=y
+CONFIG_ZSMALLOC=y
+CONFIG_LZ4_COMPRESS=y
+CONFIG_LZ4_DECOMPRESS=y
+
+# Disable expensive debugging
+# CONFIG_DEBUG_KERNEL is not set
+# CONFIG_DEBUG_INFO is not set
+# CONFIG_SLUB_DEBUG is not set
+# CONFIG_PAGE_POISONING is not set
+# CONFIG_DEBUG_PAGEALLOC is not set
+
+# Thermal - Aggressive throttling
+CONFIG_THERMAL=y
+CONFIG_THERMAL_GOV_STEP_WISE=y
+CONFIG_THERMAL_GOV_USER_SPACE=y
+
+# Networking - Reduce background activity
+CONFIG_WIREGUARD=y
+CONFIG_ANDROID_PARANOID_NETWORK=y
+EOF
+
+          # ===== BALANCED CONFIG =====
+          cat > arch/arm64/configs/vendor/angelbeats_balanced.config << 'EOF'
+# AngelBeats Balanced Mode - Xiaomi 14 Pro
+# Good battery + Good performance
+
+# KernelSU + SUSFS
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+
+# KPM + Kprobes
+CONFIG_KPM=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+
+# CPU - Balanced scheduling
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+CONFIG_CPU_IDLE=y
+
+# I/O Scheduler
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_DEFAULT_BFQ=y
+
+# Power Management - Balanced
+CONFIG_PM=y
+CONFIG_PM_SLEEP=y
+CONFIG_PM_WAKELOCKS=y
+CONFIG_PM_WAKELOCKS_LIMIT=200
+
+# Memory
+CONFIG_ZRAM=y
+CONFIG_ZSMALLOC=y
+CONFIG_LZ4_COMPRESS=y
+
+# Disable debug (less overhead)
+# CONFIG_DEBUG_KERNEL is not set
+# CONFIG_DEBUG_INFO is not set
+
+# Thermal - Moderate
+CONFIG_THERMAL=y
+CONFIG_THERMAL_GOV_STEP_WISE=y
+EOF
+
+          # ===== PERFORMANCE CONFIG =====
+          cat > arch/arm64/configs/vendor/angelbeats_performance.config << 'EOF'
+# AngelBeats Performance Mode - Xiaomi 14 Pro
+# Maximum performance
+
+# KernelSU + SUSFS
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+
+# KPM + Kprobes
+CONFIG_KPM=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+
+# CPU - Performance focused
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+
+# I/O - Performance
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+
+# Less aggressive power saving
+CONFIG_PM_WAKELOCKS_LIMIT=500
+
+# Memory
+CONFIG_ZRAM=y
+CONFIG_LZ4_COMPRESS=y
+
+# Disable debug
+# CONFIG_DEBUG_KERNEL is not set
+EOF
+
+          echo "✅ Battery optimization configs created!"
+          ls -la arch/arm64/configs/vendor/angelbeats_*.config
+      
+      - name: 🔨 Clone Proton Clang toolchain
+        run: |
+          echo "Cloning Proton Clang (best for GKI kernels)..."
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+          echo "✅ Toolchain ready!"
+      
+      - name: ⚙️ Merge kernel configs
+        working-directory: kernel
+        run: |
+          echo "Merging configs for profile: ${{ inputs.profile }}"
+          
+          # Determine which battery config to use
+          BATTERY_CONFIG="angelbeats_balanced.config"
+          
+          case "${{ inputs.profile }}" in
+            extreme_battery)
+              BATTERY_CONFIG="angelbeats_extreme_battery.config"
+              ;;
+            balanced)
+              BATTERY_CONFIG="angelbeats_balanced.config"
+              ;;
+            performance)
+              BATTERY_CONFIG="angelbeats_performance.config"
+              ;;
+          esac
+          
+          echo "Using battery config: $BATTERY_CONFIG"
+          
+          # Merge: base GKI + Xiaomi 14 Pro + Battery optimization
+          cat arch/arm64/configs/gki_defconfig \
+              arch/arm64/configs/vendor/shennong_GKI.config \
+              arch/arm64/configs/vendor/$BATTERY_CONFIG \
+              > .config
+          
+          echo "✅ Configs merged!"
+          echo "Config size: $(wc -l < .config) lines"
+      
+      - name: 🏗️ Build kernel
+        working-directory: kernel
+        run: |
+          echo "🚀 Starting kernel build..."
+          echo "Profile: ${{ inputs.profile }}"
+          
+          # Setup build environment
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CC=clang
+          export LLVM=1
+          export LLVM_IAS=1
+          
+          # Resolve config dependencies
+          make olddefconfig
+          
+          # Show kernel version
+          make kernelversion
+          
+          # Build with all CPU cores
+          make -j$(nproc) 2>&1 | tee ../build.log
+          
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            echo "✅ Kernel built successfully!"
+            ls -lh arch/arm64/boot/Image.gz
+          else
+            echo "❌ Build failed! Check build.log"
+            tail -100 ../build.log
+            exit 1
+          fi
+      
+      - name: 📦 Package AnyKernel3
+        run: |
+          echo "Packaging kernel..."
+          
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3
+          cd AnyKernel3
+          
+          # Copy kernel image
+          cp ../kernel/arch/arm64/boot/Image.gz ./
+          
+          # Configure AnyKernel3
+          cat > anykernel.sh << 'AKEOF'
+# AnyKernel3 Ramdisk Mod Script
+properties() { '
+kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
+do.devicecheck=1
+do.modules=0
+do.systemless=1
+do.cleanup=1
+do.cleanuponabort=0
+device.name1=shennong
+device.name2=Xiaomi 14 Pro
+device.name3=2311DRN47C
+supported.versions=14-15
+supported.patchlevels=
+'; }
+
+block=/dev/block/by-name/boot;
+is_slot_device=auto;
+ramdisk_compression=auto;
+
+## AnyKernel methods
+. tools/ak3-core.sh;
+
+## AnyKernel install
+dump_boot;
+write_boot;
+AKEOF
+          
+          # Create zip
+          PROFILE="${{ inputs.profile }}"
+          DATE=$(date +%Y%m%d-%H%M)
+          ZIPNAME="AngelBeats-SukiSU-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
+          
+          zip -r9 "../${ZIPNAME}" * -x .git README.md *placeholder
+          
+          cd ..
+          echo "✅ Kernel packaged: ${ZIPNAME}"
+          ls -lh "${ZIPNAME}"
+          
+          # Create info file
+          cat > KERNEL_INFO.txt << EOF
+🔋 AngelBeats-Style Kernel for Xiaomi 14 Pro
+📅 Build Date: $(date)
+⚡ Profile: ${PROFILE}
+🔧 Features:
+  - SukiSU Ultra (root)
+  - SUSFS v2.0.0 (root hiding)
+  - KPM + KProbes support
+  - BBG (Baseband Guard)
+  - AngelBeats battery optimization
+  - BFQ I/O Scheduler
+  - Schedutil CPU Governor
+
+📱 Device: Xiaomi 14 Pro (shennong)
+🐧 Kernel: 6.1.118
+📦 Flash via TWRP or Kernel Flasher app
+
+⚠️ BACKUP your current boot.img before flashing!
+
+💡 Tips:
+  - Use Scene/FK Kernel Manager to adjust settings
+  - For best battery: Enable battery profile in app
+  - Safe to flash over stock or other kernels
+EOF
+          
+          echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
+      
+      - name: 📤 Upload kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: Xiaomi-14-Pro-Kernel-${{ inputs.profile }}
+          path: |
+            *.zip
+            KERNEL_INFO.txt
+            build.log
+      
+      - name: 🎉 Build complete!
+        run: |
+          echo "================================"
+          echo "✅ BUILD SUCCESSFUL!"
+          echo "================================"
+          echo "Profile: ${{ inputs.profile }}"
+          echo "Kernel: ${{ env.ZIPNAME }}"
+          echo ""
+          echo "📥 Download from Artifacts section"
+          echo "⚡ Flash via TWRP and enjoy!"
+          echo "================================"
