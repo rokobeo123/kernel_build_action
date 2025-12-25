@@ -57,7 +57,7 @@ jobs:
           echo "📥 Cloning kernel source..."
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
-            -b shennong-t-oss \
+            -b shennong-u-oss \
             kernel
           
           cd kernel
