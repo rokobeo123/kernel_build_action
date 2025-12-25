@@ -61,7 +61,7 @@ jobs:
           echo "📥 Cloning Xiaomi 14 Pro kernel source..."
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
-            -b shennong-u-oss \
+            -b shennong-t-oss \
             kernel
           
           cd kernel
@@ -107,11 +107,11 @@ jobs:
           if [ -f "kernel/sched/topology.c" ]; then
             # Add fallback for missing cpu_coregroup_mask
             if ! grep -q "cpu_coregroup_mask" include/linux/sched/topology.h 2>/dev/null; then
-              cat >> include/linux/sched/topology.h << 'EOF'
-#ifndef cpu_coregroup_mask
-#define cpu_coregroup_mask(cpu) cpu_core_mask(cpu)
-#endif
-EOF
+              cat >> include/linux/sched/topology.h << 'TOPOLOGYEOF'
+          #ifndef cpu_coregroup_mask
+          #define cpu_coregroup_mask(cpu) cpu_core_mask(cpu)
+          #endif
+          TOPOLOGYEOF
               echo "✅ Fixed: Added cpu_coregroup_mask fallback"
             fi
           fi
