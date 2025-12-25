@@ -90,43 +90,62 @@ jobs:
           
           echo "✅ Kconfig files fixed!"
       
-      - name: 🩹 Fix kernel source compilation issues
+      - name: 🩹 Create comprehensive kernel patches
         working-directory: kernel
         run: |
-          echo "🩹 Applying source code fixes..."
+          echo "🩹 Creating and applying kernel patches..."
           
-          # Fix 1: Add missing include for early_init_dt_scan in setup.c
-          echo "Fixing setup.c..."
+          # Patch 1: Fix setup.c - add missing of_fdt.h include
+          cat > /tmp/setup.patch << 'PATCHEOF'
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -18,6 +18,7 @@
+ #include <linux/memblock.h>
+ #include <linux/of.h>
++#include <linux/of_fdt.h>
+ #include <linux/of_platform.h>
+PATCHEOF
+          
           if [ -f "arch/arm64/kernel/setup.c" ]; then
-            # Check if already has the include
-            if ! grep -q "linux/of_fdt.h" arch/arm64/kernel/setup.c; then
-              # Find the line with linux/of.h and add our include after it
-              sed -i 's|#include <linux/of\.h>|#include <linux/of.h>\n#include <linux/of_fdt.h>|' arch/arm64/kernel/setup.c
-              echo "✅ Added of_fdt.h include to setup.c"
-              grep -n "of_fdt.h" arch/arm64/kernel/setup.c || echo "Warning: Include may not have been added"
-            else
-              echo "✅ setup.c already has of_fdt.h"
+            patch -p1 < /tmp/setup.patch || {
+              echo "Patch failed, trying direct edit..."
+              sed -i '/#include <linux\/of\.h>/a #include <linux/of_fdt.h>' arch/arm64/kernel/setup.c
+            }
+            echo "✅ Fixed setup.c"
+          fi
+          
+          # Patch 2: Fix pkvm.c - add missing of_fdt.h include
+          if [ -f "arch/arm64/kvm/pkvm.c" ]; then
+            if ! grep -q "linux/of_fdt.h" arch/arm64/kvm/pkvm.c; then
+              sed -i '1i #include <linux/of_fdt.h>' arch/arm64/kvm/pkvm.c
+              echo "✅ Fixed pkvm.c"
             fi
           fi
           
-          # Fix 2: Fix CPU topology - replace cpu_coregroup_mask with cpu_core_mask
-          echo "Fixing topology.c..."
+          # Patch 3: Fix arch_timer.c - add missing arch_timer.h include
+          if [ -f "arch/arm64/kvm/arch_timer.c" ]; then
+            if ! grep -q "clocksource/arm_arch_timer.h" arch/arm64/kvm/arch_timer.c; then
+              sed -i '/#include <linux\/kvm_host.h>/a #include <clocksource/arm_arch_timer.h>' arch/arm64/kvm/arch_timer.c
+              echo "✅ Fixed arch_timer.c"
+            fi
+          fi
+          
+          # Patch 4: Fix topology.c - use cpu_cpu_mask instead
           if [ -f "kernel/sched/topology.c" ]; then
-            # Replace cpu_coregroup_mask with cpu_core_mask directly
-            sed -i 's/cpu_coregroup_mask/cpu_core_mask/g' kernel/sched/topology.c
-            echo "✅ Replaced cpu_coregroup_mask with cpu_core_mask in topology.c"
-            grep -n "cpu_core_mask" kernel/sched/topology.c | head -5 || echo "Warning: Replacement may not have worked"
+            sed -i 's/cpu_coregroup_mask(cpu)/cpu_cpu_mask(cpu)/g' kernel/sched/topology.c
+            echo "✅ Fixed topology.c (using cpu_cpu_mask)"
           fi
           
-          # Fix 3: Ensure CONFIG_SCHED_MC is enabled
-          if [ -f "arch/arm64/configs/vendor/shennong_GKI.config" ]; then
-            if ! grep -q "CONFIG_SCHED_MC=y" arch/arm64/configs/vendor/shennong_GKI.config; then
-              echo "CONFIG_SCHED_MC=y" >> arch/arm64/configs/vendor/shennong_GKI.config
-              echo "✅ Added CONFIG_SCHED_MC to shennong_GKI.config"
-            fi
-          fi
+          # Verify patches
+          echo ""
+          echo "Verifying patches..."
+          grep -n "of_fdt.h" arch/arm64/kernel/setup.c 2>/dev/null && echo "✓ setup.c patched"
+          grep -n "of_fdt.h" arch/arm64/kvm/pkvm.c 2>/dev/null && echo "✓ pkvm.c patched"
+          grep -n "arm_arch_timer.h" arch/arm64/kvm/arch_timer.c 2>/dev/null && echo "✓ arch_timer.c patched"
+          grep -n "cpu_cpu_mask" kernel/sched/topology.c 2>/dev/null && echo "✓ topology.c patched"
+          echo ""
           
-          echo "✅ All source fixes applied!"
+          echo "✅ All patches applied!"
       
       - name: 🔧 Integrate SukiSU Ultra
         working-directory: kernel
@@ -141,27 +160,62 @@ jobs:
             exit 1
           fi
       
-      - name: 📥 Clone SUSFS and copy source files
+      - name: 📥 Clone SUSFS and integrate properly
         working-directory: kernel
         run: |
-          echo "📥 Cloning SUSFS for source files..."
+          echo "📥 Cloning SUSFS for proper kernel integration..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
-          echo "Copying SUSFS source files to KernelSU/kernel/..."
+          echo "📂 Integrating SUSFS into kernel directories..."
           
+          # Copy KSU-specific SUSFS files to KernelSU/kernel/
           if [ -d "susfs4ksu/ksu_susfs" ]; then
+            echo "Copying KSU SUSFS files..."
             cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
             cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
           fi
           
-          if [ -d "susfs4ksu/kernel_patches/ksu_susfs" ]; then
-            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
-            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
+          # Copy kernel patch files to their proper locations in kernel tree
+          if [ -d "susfs4ksu/kernel_patches" ]; then
+            echo "Copying kernel patches to proper directories..."
+            
+            # Copy fs/ patches
+            if [ -d "susfs4ksu/kernel_patches/fs" ]; then
+              find susfs4ksu/kernel_patches/fs -type f \( -name "*.c" -o -name "*.h" \) | while read file; do
+                rel_path="${file#susfs4ksu/kernel_patches/}"
+                target_dir="$(dirname "$rel_path")"
+                mkdir -p "$target_dir"
+                cp -v "$file" "$rel_path"
+              done
+            fi
+            
+            # Copy include/ patches
+            if [ -d "susfs4ksu/kernel_patches/include" ]; then
+              find susfs4ksu/kernel_patches/include -type f -name "*.h" | while read file; do
+                rel_path="${file#susfs4ksu/kernel_patches/}"
+                target_dir="$(dirname "$rel_path")"
+                mkdir -p "$target_dir"
+                cp -v "$file" "$rel_path"
+              done
+            fi
+            
+            # Copy any ksu_susfs specific files to KernelSU
+            if [ -d "susfs4ksu/kernel_patches/ksu_susfs" ]; then
+              cp -v susfs4ksu/kernel_patches/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
+              cp -v susfs4ksu/kernel_patches/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
+            fi
           fi
           
-          find susfs4ksu -type f \( -name "*susfs*.c" -o -name "*susfs*.h" \) -exec cp -v {} KernelSU/kernel/ \; 2>/dev/null || true
-          
-          echo "✅ SUSFS source files copied!"
+          echo ""
+          echo "✅ SUSFS integrated into kernel tree!"
+          echo "📂 Files in KernelSU/kernel/:"
+          ls -la KernelSU/kernel/*susfs* 2>/dev/null || echo "  (no susfs files)"
+          echo ""
+          echo "📂 Files in fs/:"
+          find fs/ -name "*susfs*" 2>/dev/null || echo "  (no susfs files)"
+          echo ""
+          echo "📂 Files in include/:"
+          find include/ -name "*susfs*" 2>/dev/null || echo "  (no susfs files)"
       
       - name: ⚡ Create AngelBeats battery optimization configs
         working-directory: kernel
