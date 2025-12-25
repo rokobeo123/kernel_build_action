@@ -208,6 +208,10 @@ jobs:
         run: |
           mkdir -p drivers/misc/hwid
           touch drivers/misc/hwid/Kconfig
+      - name: 🛠️ Prepare headers folder
+        working-directory: kernel
+        run: |
+          mkdir -p usr/include
       - name: ⚙️ Merge configs
         working-directory: kernel
         run: |
