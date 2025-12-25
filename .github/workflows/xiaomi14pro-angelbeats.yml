@@ -42,19 +42,23 @@ jobs:
           sudo apt-get clean
           df -h
       
-      - name: 📦 Install dependencies
+      - name: 📦 Install dependencies (including libelf)
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex \
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl flex \
             g++-multilib gcc-multilib git gnupg gperf imagemagick \
             lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev \
             libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
             pngcrush rsync schedtool squashfs-tools xsltproc zip \
-            zlib1g-dev python3 python-is-python3 wget cpio kmod
+            zlib1g-dev python3 python-is-python3 wget cpio kmod \
+            libelf-dev libelf1 elfutils
+          
+          echo "✅ All dependencies installed!"
       
       - name: 📂 Clone kernel source
         run: |
-          echo "📥 Cloning kernel source..."
+          echo "📥 Cloning Xiaomi 14 Pro kernel source..."
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
             -b shennong-u-oss \
@@ -69,77 +73,64 @@ jobs:
         run: |
           echo "🔧 Fixing missing Kconfig references..."
           
-          # Fix drivers/misc/Kconfig - remove missing hwid reference
           if [ -f "drivers/misc/Kconfig" ]; then
-            echo "Patching drivers/misc/Kconfig..."
             sed -i '/source "drivers\/misc\/hwid\/Kconfig"/d' drivers/misc/Kconfig
           fi
           
-          # Create empty Kconfig if directory exists but file missing
           if [ -d "drivers/misc/hwid" ] && [ ! -f "drivers/misc/hwid/Kconfig" ]; then
-            echo "Creating empty hwid Kconfig..."
             touch drivers/misc/hwid/Kconfig
           fi
           
-          # Find and fix other potential missing Kconfig files
           grep -r "source.*Kconfig" drivers/ 2>/dev/null | grep -v ".git" | cut -d'"' -f2 | while read kconfig; do
             if [ ! -f "$kconfig" ]; then
-              echo "Missing: $kconfig"
-              # Comment out the source line
+              echo "Missing: $kconfig - removing reference"
               find drivers/ -name "Kconfig" -exec sed -i "\|source.*$(basename $kconfig)|d" {} \; 2>/dev/null
             fi
           done
           
           echo "✅ Kconfig files fixed!"
       
-      - name: 🔧 Integrate SukiSU
+      - name: 🔧 Integrate SukiSU Ultra
         working-directory: kernel
         run: |
-          echo "🚀 Installing SukiSU..."
+          echo "🚀 Installing SukiSU with builtin SUSFS config..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           
           if [ -d "KernelSU" ]; then
             echo "✅ SukiSU integrated!"
-            ls -la KernelSU/kernel/ | head -10
           else
             echo "❌ SukiSU integration failed!"
             exit 1
           fi
       
-      - name: 📥 Clone SUSFS and copy files
+      - name: 📥 Clone SUSFS and copy source files
         working-directory: kernel
         run: |
-          echo "📥 Cloning SUSFS..."
+          echo "📥 Cloning SUSFS for source files..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
-          echo "Copying SUSFS source files..."
+          echo "Copying SUSFS source files to KernelSU/kernel/..."
           
-          # Method 1: From ksu_susfs
           if [ -d "susfs4ksu/ksu_susfs" ]; then
             cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
             cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
           fi
           
-          # Method 2: From kernel_patches/ksu_susfs
           if [ -d "susfs4ksu/kernel_patches/ksu_susfs" ]; then
             cp -v susfs4ksu/kernel_patches/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
             cp -v susfs4ksu/kernel_patches/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
           fi
           
-          # Method 3: Find all susfs files
           find susfs4ksu -type f \( -name "*susfs*.c" -o -name "*susfs*.h" \) -exec cp -v {} KernelSU/kernel/ \; 2>/dev/null || true
           
-          echo "✅ SUSFS files copied!"
-          echo "Files in KernelSU/kernel:"
-          ls -la KernelSU/kernel/ | grep susfs || echo "No explicit susfs files (may be integrated)"
+          echo "✅ SUSFS source files copied!"
       
-      - name: ⚡ Create battery optimization configs
+      - name: ⚡ Create AngelBeats battery optimization configs
         working-directory: kernel
         run: |
-          echo "⚡ Creating battery configs..."
+          echo "⚡ Creating battery optimization configs..."
           mkdir -p arch/arm64/configs/vendor
           
-          # Extreme Battery
           cat > arch/arm64/configs/vendor/angelbeats_extreme_battery.config << 'ENDCONFIG'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -172,7 +163,6 @@ jobs:
           CONFIG_WIREGUARD=y
           ENDCONFIG
           
-          # Balanced
           cat > arch/arm64/configs/vendor/angelbeats_balanced.config << 'ENDCONFIG'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -204,7 +194,6 @@ jobs:
           CONFIG_WIREGUARD=y
           ENDCONFIG
           
-          # Performance
           cat > arch/arm64/configs/vendor/angelbeats_performance.config << 'ENDCONFIG'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -231,52 +220,31 @@ jobs:
           CONFIG_WIREGUARD=y
           ENDCONFIG
           
-          echo "✅ Configs created!"
+          echo "✅ Battery configs created!"
           ls -la arch/arm64/configs/vendor/angelbeats_*.config
       
-      - name: 🔨 Clone Proton Clang
+      - name: 🔨 Clone Proton Clang toolchain
         run: |
           echo "📥 Cloning Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
-          echo "✅ Clang ready!"
+          echo "✅ Proton Clang ready!"
       
-      - name: ⚙️ Merge configs and prepare build
+      - name: ⚙️ Merge configs
         working-directory: kernel
         run: |
-          echo "⚙️ Merging configs..."
+          echo "⚙️ Merging kernel configs..."
           
           BATTERY_CONFIG="angelbeats_${PROFILE}.config"
-          echo "Using profile: $PROFILE"
-          echo "Config file: $BATTERY_CONFIG"
+          echo "Profile: $PROFILE"
+          echo "Config: $BATTERY_CONFIG"
           
-          # Merge configs
           cat arch/arm64/configs/gki_defconfig \
               arch/arm64/configs/vendor/shennong_GKI.config \
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
           
           echo "✅ Configs merged!"
-          echo "Config size: $(wc -l < .config) lines"
-          
-          # Setup environment
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
-          export LLVM=1
-          export LLVM_IAS=1
-          
-          # Resolve config dependencies - với error handling
-          echo "Resolving config dependencies..."
-          make olddefconfig 2>&1 | tee config.log || {
-            echo "⚠️ olddefconfig had warnings, checking if critical..."
-            cat config.log
-            # Continue even if there are warnings
-          }
-          
-          echo "✅ Config resolved!"
+          echo "Total lines: $(wc -l < .config)"
       
       - name: 🏗️ Build kernel
         working-directory: kernel
@@ -292,43 +260,45 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           
-          # Show versions
           echo "Compiler version:"
           clang --version | head -1
-          echo ""
+          
           echo "Kernel version:"
           make kernelversion
+          
+          echo ""
+          echo "Resolving config..."
+          make olddefconfig 2>&1 | tee config.log || true
+          
+          echo ""
+          echo "🚀 Building with $(nproc) CPU cores..."
           echo ""
           
-          # Build with all cores
-          echo "🚀 Building with $(nproc) cores..."
           make -j$(nproc) 2>&1 | tee ../build.log
           
-          # Check result
           if [ -f arch/arm64/boot/Image.gz ]; then
             echo ""
-            echo "✅ ================================"
-            echo "✅  KERNEL BUILD SUCCESSFUL!"
-            echo "✅ ================================"
+            echo "✅ ==============================="
+            echo "✅  BUILD SUCCESSFUL!"
+            echo "✅ ==============================="
             ls -lh arch/arm64/boot/Image.gz
-            echo ""
           else
             echo ""
-            echo "❌ ================================"
+            echo "❌ ==============================="
             echo "❌  BUILD FAILED!"
-            echo "❌ ================================"
+            echo "❌ ==============================="
             echo ""
-            echo "Last 200 lines of build log:"
-            tail -200 ../build.log
+            echo "Last 100 lines:"
+            tail -100 ../build.log
             echo ""
-            echo "Errors found:"
-            grep -i "error:" ../build.log | tail -20
+            echo "Errors:"
+            grep -i "error:" ../build.log | tail -30
             exit 1
           fi
       
-      - name: 📦 Package with AnyKernel3
+      - name: 📦 Package AnyKernel3
         run: |
-          echo "📦 Packaging kernel..."
+          echo "📦 Creating flashable ZIP..."
           
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3
           cd AnyKernel3
@@ -365,27 +335,36 @@ jobs:
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
           
           cat > KERNEL_INFO.txt << 'INFOEND'
-          AngelBeats-Style Kernel for Xiaomi 14 Pro
+          🔋 AngelBeats-Style Kernel for Xiaomi 14 Pro
           
-          Features:
-          - SukiSU Ultra (root)
+          ✅ Features:
+          - SukiSU Ultra (root solution)
           - SUSFS v2.0.0 (root hiding)
           - KPM + KProbes support
+          - BBG (Baseband Guard)
           - Battery optimization
           - BFQ I/O Scheduler
+          - Schedutil CPU Governor
           
-          Device: Xiaomi 14 Pro (shennong)
-          Kernel: 6.1.118
+          📱 Device: Xiaomi 14 Pro (shennong)
+          🐧 Kernel: 6.1.118
+          📅 Android: 14-15
           
-          Flash via TWRP:
-          1. Backup boot.img
-          2. Flash ZIP
+          📥 INSTALLATION:
+          1. Backup current boot.img!
+          2. Flash via TWRP or Kernel Manager
           3. Reboot
+          4. Install KernelSU Manager app
           
-          Enjoy better battery life!
+          💡 Recommended apps:
+          - Scene (Coolapk)
+          - Franco Kernel Manager
+          - EX Kernel Manager
+          
+          🔋 Enjoy better battery life!
           INFOEND
           
-          echo "✅ Packaged: ${ZIPNAME}"
+          echo "✅ Package created: ${ZIPNAME}"
           ls -lh "${ZIPNAME}"
       
       - name: 📤 Upload artifacts
@@ -398,16 +377,18 @@ jobs:
             build.log
           retention-days: 30
       
-      - name: 🎉 Build complete
+      - name: 🎉 Build complete!
         run: |
           echo ""
-          echo "╔════════════════════════════════════╗"
-          echo "║   ✅  BUILD SUCCESSFUL!  ✅       ║"
-          echo "╚════════════════════════════════════╝"
+          echo "╔═══════════════════════════════════════╗"
+          echo "║                                       ║"
+          echo "║    ✅  BUILD SUCCESSFUL!  ✅         ║"
+          echo "║                                       ║"
+          echo "╚═══════════════════════════════════════╝"
           echo ""
           echo "📦 Kernel: ${{ env.ZIPNAME }}"
           echo "⚡ Profile: ${{ env.PROFILE }}"
           echo ""
-          echo "📥 Download from Artifacts section"
-          echo "🔋 Flash and enjoy!"
+          echo "📥 Download from Artifacts section below"
+          echo "⚡ Flash via TWRP and enjoy!"
           echo ""
