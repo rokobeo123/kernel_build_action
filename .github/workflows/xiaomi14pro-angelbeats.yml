@@ -61,7 +61,7 @@ jobs:
           echo "📥 Cloning Xiaomi 14 Pro kernel source..."
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
-            -b shennong-u-oss \
+            -b shennong-t-oss \
             kernel
           
           cd kernel
@@ -95,31 +95,38 @@ jobs:
         run: |
           echo "🩹 Applying source code fixes..."
           
-          # Fix 1: Add missing include for early_init_dt_scan
+          # Fix 1: Add missing include for early_init_dt_scan in setup.c
+          echo "Fixing setup.c..."
           if [ -f "arch/arm64/kernel/setup.c" ]; then
-            if ! grep -q "#include <linux/of_fdt.h>" arch/arm64/kernel/setup.c; then
-              sed -i '/#include <linux\/of\.h>/a #include <linux/of_fdt.h>' arch/arm64/kernel/setup.c
-              echo "✅ Fixed: Added of_fdt.h include to setup.c"
+            # Check if already has the include
+            if ! grep -q "linux/of_fdt.h" arch/arm64/kernel/setup.c; then
+              # Find the line with linux/of.h and add our include after it
+              sed -i 's|#include <linux/of\.h>|#include <linux/of.h>\n#include <linux/of_fdt.h>|' arch/arm64/kernel/setup.c
+              echo "✅ Added of_fdt.h include to setup.c"
+              grep -n "of_fdt.h" arch/arm64/kernel/setup.c || echo "Warning: Include may not have been added"
+            else
+              echo "✅ setup.c already has of_fdt.h"
             fi
           fi
           
-          # Fix 2: Fix CPU topology mask issue
+          # Fix 2: Fix CPU topology - replace cpu_coregroup_mask with cpu_core_mask
+          echo "Fixing topology.c..."
           if [ -f "kernel/sched/topology.c" ]; then
-            # Add fallback for missing cpu_coregroup_mask
-            if ! grep -q "cpu_coregroup_mask" include/linux/sched/topology.h 2>/dev/null; then
-              cat >> include/linux/sched/topology.h << 'TOPOLOGYEOF'
-          #ifndef cpu_coregroup_mask
-          #define cpu_coregroup_mask(cpu) cpu_core_mask(cpu)
-          #endif
-          TOPOLOGYEOF
-              echo "✅ Fixed: Added cpu_coregroup_mask fallback"
+            # Replace cpu_coregroup_mask with cpu_core_mask directly
+            sed -i 's/cpu_coregroup_mask/cpu_core_mask/g' kernel/sched/topology.c
+            echo "✅ Replaced cpu_coregroup_mask with cpu_core_mask in topology.c"
+            grep -n "cpu_core_mask" kernel/sched/topology.c | head -5 || echo "Warning: Replacement may not have worked"
+          fi
+          
+          # Fix 3: Ensure CONFIG_SCHED_MC is enabled
+          if [ -f "arch/arm64/configs/vendor/shennong_GKI.config" ]; then
+            if ! grep -q "CONFIG_SCHED_MC=y" arch/arm64/configs/vendor/shennong_GKI.config; then
+              echo "CONFIG_SCHED_MC=y" >> arch/arm64/configs/vendor/shennong_GKI.config
+              echo "✅ Added CONFIG_SCHED_MC to shennong_GKI.config"
             fi
           fi
           
-          # Fix 3: Ensure CONFIG_SCHED_MC is enabled (needed for cpu_coregroup_mask)
-          echo "CONFIG_SCHED_MC=y" >> arch/arm64/configs/vendor/shennong_GKI.config 2>/dev/null || true
-          
-          echo "✅ Source fixes applied!"
+          echo "✅ All source fixes applied!"
       
       - name: 🔧 Integrate SukiSU Ultra
         working-directory: kernel
