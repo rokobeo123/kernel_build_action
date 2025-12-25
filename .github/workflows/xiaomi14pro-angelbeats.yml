@@ -42,7 +42,7 @@ jobs:
           sudo apt-get clean
           df -h
       
-      - name: 📦 Install dependencies (including libelf)
+      - name: 📦 Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -90,31 +90,20 @@ jobs:
           
           echo "✅ Kconfig files fixed!"
       
-      - name: 🩹 Create comprehensive kernel patches
+      - name: 🩹 Apply kernel source patches
         working-directory: kernel
         run: |
-          echo "🩹 Creating and applying kernel patches..."
+          echo "🩹 Applying kernel patches..."
           
-          # Patch 1: Fix setup.c - add missing of_fdt.h include
-          cat > /tmp/setup.patch << 'PATCHEOF'
---- a/arch/arm64/kernel/setup.c
-+++ b/arch/arm64/kernel/setup.c
-@@ -18,6 +18,7 @@
- #include <linux/memblock.h>
- #include <linux/of.h>
-+#include <linux/of_fdt.h>
- #include <linux/of_platform.h>
-PATCHEOF
-          
+          # Fix 1: Add missing of_fdt.h include to setup.c
           if [ -f "arch/arm64/kernel/setup.c" ]; then
-            patch -p1 < /tmp/setup.patch || {
-              echo "Patch failed, trying direct edit..."
+            if ! grep -q "linux/of_fdt.h" arch/arm64/kernel/setup.c; then
               sed -i '/#include <linux\/of\.h>/a #include <linux/of_fdt.h>' arch/arm64/kernel/setup.c
-            }
-            echo "✅ Fixed setup.c"
+              echo "✅ Fixed setup.c"
+            fi
           fi
           
-          # Patch 2: Fix pkvm.c - add missing of_fdt.h include
+          # Fix 2: Add missing of_fdt.h include to pkvm.c
           if [ -f "arch/arm64/kvm/pkvm.c" ]; then
             if ! grep -q "linux/of_fdt.h" arch/arm64/kvm/pkvm.c; then
               sed -i '1i #include <linux/of_fdt.h>' arch/arm64/kvm/pkvm.c
@@ -122,7 +111,7 @@ PATCHEOF
             fi
           fi
           
-          # Patch 3: Fix arch_timer.c - add missing arch_timer.h include
+          # Fix 3: Add missing arch_timer.h include to arch_timer.c
           if [ -f "arch/arm64/kvm/arch_timer.c" ]; then
             if ! grep -q "clocksource/arm_arch_timer.h" arch/arm64/kvm/arch_timer.c; then
               sed -i '/#include <linux\/kvm_host.h>/a #include <clocksource/arm_arch_timer.h>' arch/arm64/kvm/arch_timer.c
@@ -130,21 +119,19 @@ PATCHEOF
             fi
           fi
           
-          # Patch 4: Fix topology.c - use cpu_cpu_mask instead
+          # Fix 4: Replace cpu_coregroup_mask with cpu_cpu_mask in topology.c
           if [ -f "kernel/sched/topology.c" ]; then
             sed -i 's/cpu_coregroup_mask(cpu)/cpu_cpu_mask(cpu)/g' kernel/sched/topology.c
-            echo "✅ Fixed topology.c (using cpu_cpu_mask)"
+            echo "✅ Fixed topology.c"
           fi
           
-          # Verify patches
           echo ""
           echo "Verifying patches..."
-          grep -n "of_fdt.h" arch/arm64/kernel/setup.c 2>/dev/null && echo "✓ setup.c patched"
-          grep -n "of_fdt.h" arch/arm64/kvm/pkvm.c 2>/dev/null && echo "✓ pkvm.c patched"
-          grep -n "arm_arch_timer.h" arch/arm64/kvm/arch_timer.c 2>/dev/null && echo "✓ arch_timer.c patched"
-          grep -n "cpu_cpu_mask" kernel/sched/topology.c 2>/dev/null && echo "✓ topology.c patched"
+          grep -n "of_fdt.h" arch/arm64/kernel/setup.c 2>/dev/null && echo "✓ setup.c OK"
+          grep -n "of_fdt.h" arch/arm64/kvm/pkvm.c 2>/dev/null && echo "✓ pkvm.c OK"
+          grep -n "arm_arch_timer.h" arch/arm64/kvm/arch_timer.c 2>/dev/null && echo "✓ arch_timer.c OK"
+          grep -n "cpu_cpu_mask" kernel/sched/topology.c 2>/dev/null && echo "✓ topology.c OK"
           echo ""
-          
           echo "✅ All patches applied!"
       
       - name: 🔧 Integrate SukiSU Ultra
@@ -446,7 +433,7 @@ PATCHEOF
           - Schedutil CPU Governor
           
           📱 Device: Xiaomi 14 Pro (shennong)
-          🐧 Kernel: 6.1.118
+          🐧 Kernel: 6.1.x
           📅 Android: 14-15
           
           📥 INSTALLATION:
