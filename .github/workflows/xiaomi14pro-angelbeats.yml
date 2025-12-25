@@ -181,22 +181,26 @@ PATCHEOF
             
             # Copy fs/ patches
             if [ -d "susfs4ksu/kernel_patches/fs" ]; then
-              find susfs4ksu/kernel_patches/fs -type f \( -name "*.c" -o -name "*.h" \) | while read file; do
-                rel_path="${file#susfs4ksu/kernel_patches/}"
-                target_dir="$(dirname "$rel_path")"
-                mkdir -p "$target_dir"
-                cp -v "$file" "$rel_path"
-              done
+              find susfs4ksu/kernel_patches/fs -type f \( -name "*.c" -o -name "*.h" \) -exec sh -c '
+                for file; do
+                  rel_path="${file#susfs4ksu/kernel_patches/}"
+                  target_dir="$(dirname "$rel_path")"
+                  mkdir -p "$target_dir"
+                  cp -v "$file" "$rel_path"
+                done
+              ' sh {} +
             fi
             
             # Copy include/ patches
             if [ -d "susfs4ksu/kernel_patches/include" ]; then
-              find susfs4ksu/kernel_patches/include -type f -name "*.h" | while read file; do
-                rel_path="${file#susfs4ksu/kernel_patches/}"
-                target_dir="$(dirname "$rel_path")"
-                mkdir -p "$target_dir"
-                cp -v "$file" "$rel_path"
-              done
+              find susfs4ksu/kernel_patches/include -type f -name "*.h" -exec sh -c '
+                for file; do
+                  rel_path="${file#susfs4ksu/kernel_patches/}"
+                  target_dir="$(dirname "$rel_path")"
+                  mkdir -p "$target_dir"
+                  cp -v "$file" "$rel_path"
+                done
+              ' sh {} +
             fi
             
             # Copy any ksu_susfs specific files to KernelSU
