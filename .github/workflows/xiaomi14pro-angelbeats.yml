@@ -56,21 +56,21 @@ jobs:
             echo "⚠️ hwid directory missing, creating dummy Kconfig"
             mkdir -p drivers/misc/hwid
             
-            # Create Kconfig with proper heredoc
-            cat > drivers/misc/hwid/Kconfig << 'KCONFIG_EOF'
-            # Dummy hwid Kconfig
-            config HWID_DUMMY
-                bool "Dummy HWID"
-                default n
-                help
-                    Dummy config for missing hwid driver
-            KCONFIG_EOF
+            # Create Kconfig
+            cat << 'EOF' > drivers/misc/hwid/Kconfig
+# Dummy hwid Kconfig
+config HWID_DUMMY
+    bool "Dummy HWID"
+    default n
+    help
+        Dummy config for missing hwid driver
+EOF
             
-            # Create Makefile with proper heredoc
-            cat > drivers/misc/hwid/Makefile << 'MAKEFILE_EOF'
-            # Dummy hwid Makefile
-            # obj-$(CONFIG_HWID_DUMMY) += hwid.o
-            MAKEFILE_EOF
+            # Create Makefile
+            cat << 'EOF' > drivers/misc/hwid/Makefile
+# Dummy hwid Makefile
+# obj-$(CONFIG_HWID_DUMMY) += hwid.o
+EOF
             
             echo "✅ Created dummy hwid driver"
           else
@@ -114,230 +114,230 @@ jobs:
           mkdir -p arch/arm64/configs/vendor
           
           # Extreme Battery Config
-          cat > arch/arm64/configs/vendor/angelbeats_extreme_battery.config << 'CONFIG_EOF'
-          # KernelSU
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          
-          # Kernel Modules
-          CONFIG_MODULES=y
-          CONFIG_MODULE_UNLOAD=y
-          CONFIG_MODULE_FORCE_UNLOAD=y
-          
-          # Power Management
-          CONFIG_PM=y
-          CONFIG_PM_SLEEP=y
-          CONFIG_PM_AUTOSLEEP=y
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_LIMIT=100
-          CONFIG_PM_WAKELOCKS_GC=y
-          
-          # CPU Frequency
-          CONFIG_CPU_FREQ=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE=y
-          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-          
-          # CPU Idle
-          CONFIG_CPU_IDLE=y
-          CONFIG_CPU_IDLE_GOV_MENU=y
-          
-          # I/O Scheduler
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_MQ_IOSCHED_DEADLINE=y
-          CONFIG_MQ_IOSCHED_KYBER=y
-          CONFIG_IOSCHED_DEADLINE=y
-          CONFIG_IOSCHED_CFQ=y
-          CONFIG_DEFAULT_BFQ=y
-          CONFIG_DEFAULT_IOSCHED="bfq"
-          
-          # Memory Management
-          CONFIG_ZRAM=y
-          CONFIG_ZRAM_WRITEBACK=y
-          CONFIG_ZSMALLOC=y
-          CONFIG_LZ4_COMPRESS=y
-          CONFIG_LZ4_DECOMPRESS=y
-          
-          # Thermal
-          CONFIG_THERMAL=y
-          CONFIG_THERMAL_GOV_STEP_WISE=y
-          CONFIG_THERMAL_GOV_USER_SPACE=y
-          CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
-          
-          # Networking
-          CONFIG_WIREGUARD=y
-          
-          # Debugging/Symbols
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          
-          # Tickless
-          CONFIG_NO_HZ_IDLE=y
-          CONFIG_NO_HZ_FULL=y
-          CONFIG_NO_HZ=y
-          CONFIG_HIGH_RES_TIMERS=y
-          CONFIG_EOF
+          cat > arch/arm64/configs/vendor/angelbeats_extreme_battery.config << 'EOF'
+# KernelSU
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+
+# Kernel Modules
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y
+CONFIG_MODULE_FORCE_UNLOAD=y
+
+# Power Management
+CONFIG_PM=y
+CONFIG_PM_SLEEP=y
+CONFIG_PM_AUTOSLEEP=y
+CONFIG_PM_WAKELOCKS=y
+CONFIG_PM_WAKELOCKS_LIMIT=100
+CONFIG_PM_WAKELOCKS_GC=y
+
+# CPU Frequency
+CONFIG_CPU_FREQ=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_POWERSAVE=y
+CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+
+# CPU Idle
+CONFIG_CPU_IDLE=y
+CONFIG_CPU_IDLE_GOV_MENU=y
+
+# I/O Scheduler
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_MQ_IOSCHED_DEADLINE=y
+CONFIG_MQ_IOSCHED_KYBER=y
+CONFIG_IOSCHED_DEADLINE=y
+CONFIG_IOSCHED_CFQ=y
+CONFIG_DEFAULT_BFQ=y
+CONFIG_DEFAULT_IOSCHED="bfq"
+
+# Memory Management
+CONFIG_ZRAM=y
+CONFIG_ZRAM_WRITEBACK=y
+CONFIG_ZSMALLOC=y
+CONFIG_LZ4_COMPRESS=y
+CONFIG_LZ4_DECOMPRESS=y
+
+# Thermal
+CONFIG_THERMAL=y
+CONFIG_THERMAL_GOV_STEP_WISE=y
+CONFIG_THERMAL_GOV_USER_SPACE=y
+CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
+
+# Networking
+CONFIG_WIREGUARD=y
+
+# Debugging/Symbols
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+
+# Tickless
+CONFIG_NO_HZ_IDLE=y
+CONFIG_NO_HZ_FULL=y
+CONFIG_NO_HZ=y
+CONFIG_HIGH_RES_TIMERS=y
+EOF
           
           # Balanced Config
-          cat > arch/arm64/configs/vendor/angelbeats_balanced.config << 'CONFIG_EOF'
-          # KernelSU
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          
-          # Kernel Modules
-          CONFIG_MODULES=y
-          CONFIG_MODULE_UNLOAD=y
-          CONFIG_MODULE_FORCE_UNLOAD=y
-          
-          # Power Management
-          CONFIG_PM=y
-          CONFIG_PM_SLEEP=y
-          CONFIG_PM_AUTOSLEEP=y
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_LIMIT=200
-          CONFIG_PM_WAKELOCKS_GC=y
-          
-          # CPU Frequency
-          CONFIG_CPU_FREQ=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_GOV_POWERSAVE=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-          
-          # CPU Idle
-          CONFIG_CPU_IDLE=y
-          CONFIG_CPU_IDLE_GOV_MENU=y
-          
-          # I/O Scheduler
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_MQ_IOSCHED_DEADLINE=y
-          CONFIG_MQ_IOSCHED_KYBER=y
-          CONFIG_IOSCHED_DEADLINE=y
-          CONFIG_IOSCHED_CFQ=y
-          CONFIG_DEFAULT_BFQ=y
-          CONFIG_DEFAULT_IOSCHED="bfq"
-          
-          # Memory Management
-          CONFIG_ZRAM=y
-          CONFIG_ZRAM_WRITEBACK=y
-          CONFIG_ZSMALLOC=y
-          CONFIG_LZ4_COMPRESS=y
-          CONFIG_LZ4_DECOMPRESS=y
-          
-          # Thermal
-          CONFIG_THERMAL=y
-          CONFIG_THERMAL_GOV_STEP_WISE=y
-          CONFIG_THERMAL_GOV_USER_SPACE=y
-          CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
-          
-          # Networking
-          CONFIG_WIREGUARD=y
-          
-          # Debugging/Symbols
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          
-          # Tickless
-          CONFIG_NO_HZ_IDLE=y
-          CONFIG_NO_HZ_FULL=y
-          CONFIG_NO_HZ=y
-          CONFIG_HIGH_RES_TIMERS=y
-          CONFIG_EOF
+          cat > arch/arm64/configs/vendor/angelbeats_balanced.config << 'EOF'
+# KernelSU
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+
+# Kernel Modules
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y
+CONFIG_MODULE_FORCE_UNLOAD=y
+
+# Power Management
+CONFIG_PM=y
+CONFIG_PM_SLEEP=y
+CONFIG_PM_AUTOSLEEP=y
+CONFIG_PM_WAKELOCKS=y
+CONFIG_PM_WAKELOCKS_LIMIT=200
+CONFIG_PM_WAKELOCKS_GC=y
+
+# CPU Frequency
+CONFIG_CPU_FREQ=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+
+# CPU Idle
+CONFIG_CPU_IDLE=y
+CONFIG_CPU_IDLE_GOV_MENU=y
+
+# I/O Scheduler
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_MQ_IOSCHED_DEADLINE=y
+CONFIG_MQ_IOSCHED_KYBER=y
+CONFIG_IOSCHED_DEADLINE=y
+CONFIG_IOSCHED_CFQ=y
+CONFIG_DEFAULT_BFQ=y
+CONFIG_DEFAULT_IOSCHED="bfq"
+
+# Memory Management
+CONFIG_ZRAM=y
+CONFIG_ZRAM_WRITEBACK=y
+CONFIG_ZSMALLOC=y
+CONFIG_LZ4_COMPRESS=y
+CONFIG_LZ4_DECOMPRESS=y
+
+# Thermal
+CONFIG_THERMAL=y
+CONFIG_THERMAL_GOV_STEP_WISE=y
+CONFIG_THERMAL_GOV_USER_SPACE=y
+CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
+
+# Networking
+CONFIG_WIREGUARD=y
+
+# Debugging/Symbols
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+
+# Tickless
+CONFIG_NO_HZ_IDLE=y
+CONFIG_NO_HZ_FULL=y
+CONFIG_NO_HZ=y
+CONFIG_HIGH_RES_TIMERS=y
+EOF
           
           # Performance Config
-          cat > arch/arm64/configs/vendor/angelbeats_performance.config << 'CONFIG_EOF'
-          # KernelSU
-          CONFIG_KSU=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          
-          # Kernel Modules
-          CONFIG_MODULES=y
-          CONFIG_MODULE_UNLOAD=y
-          CONFIG_MODULE_FORCE_UNLOAD=y
-          
-          # Power Management
-          CONFIG_PM=y
-          CONFIG_PM_SLEEP=y
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_LIMIT=500
-          
-          # CPU Frequency
-          CONFIG_CPU_FREQ=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-          
-          # CPU Idle
-          CONFIG_CPU_IDLE=y
-          
-          # I/O Scheduler
-          CONFIG_IOSCHED_BFQ=y
-          CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_MQ_IOSCHED_DEADLINE=y
-          CONFIG_MQ_IOSCHED_KYBER=y
-          CONFIG_IOSCHED_DEADLINE=y
-          CONFIG_DEFAULT_BFQ=y
-          CONFIG_DEFAULT_IOSCHED="bfq"
-          
-          # Memory Management
-          CONFIG_ZRAM=y
-          CONFIG_ZSMALLOC=y
-          CONFIG_LZ4_COMPRESS=y
-          
-          # Thermal
-          CONFIG_THERMAL=y
-          CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
-          
-          # Networking
-          CONFIG_WIREGUARD=y
-          
-          # Debugging/Symbols
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          
-          # Tickless
-          CONFIG_NO_HZ_IDLE=y
-          CONFIG_HIGH_RES_TIMERS=y
-          CONFIG_EOF
+          cat > arch/arm64/configs/vendor/angelbeats_performance.config << 'EOF'
+# KernelSU
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+
+# Kernel Modules
+CONFIG_MODULES=y
+CONFIG_MODULE_UNLOAD=y
+CONFIG_MODULE_FORCE_UNLOAD=y
+
+# Power Management
+CONFIG_PM=y
+CONFIG_PM_SLEEP=y
+CONFIG_PM_WAKELOCKS=y
+CONFIG_PM_WAKELOCKS_LIMIT=500
+
+# CPU Frequency
+CONFIG_CPU_FREQ=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+
+# CPU Idle
+CONFIG_CPU_IDLE=y
+
+# I/O Scheduler
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+CONFIG_MQ_IOSCHED_DEADLINE=y
+CONFIG_MQ_IOSCHED_KYBER=y
+CONFIG_IOSCHED_DEADLINE=y
+CONFIG_DEFAULT_BFQ=y
+CONFIG_DEFAULT_IOSCHED="bfq"
+
+# Memory Management
+CONFIG_ZRAM=y
+CONFIG_ZSMALLOC=y
+CONFIG_LZ4_COMPRESS=y
+
+# Thermal
+CONFIG_THERMAL=y
+CONFIG_THERMAL_GOV_POWER_ALLOCATOR=y
+
+# Networking
+CONFIG_WIREGUARD=y
+
+# Debugging/Symbols
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KPROBES=y
+CONFIG_KPROBE_EVENTS=y
+
+# Tickless
+CONFIG_NO_HZ_IDLE=y
+CONFIG_HIGH_RES_TIMERS=y
+EOF
           
           echo "✅ Configs created!"
           ls -la arch/arm64/configs/vendor/angelbeats_*.config
@@ -432,59 +432,59 @@ jobs:
           echo "✅ Kernel image size: $(du -h Image.gz | cut -f1)"
           
           # Create anykernel.sh
-          cat > anykernel.sh << 'AKEOF'
-          #!/bin/sh
-          # AnyKernel3 Ramdisk Mod Script
-          # osm0sis @ xda-developers
-          
-          ## AnyKernel setup
-          begin() {
-            ui_print " "
-            ui_print "╔══════════════════════════════════════╗"
-            ui_print "║     AngelBeats Kernel for Xiaomi     ║"
-            ui_print "║           14 Pro (shennong)          ║"
-            ui_print "╚══════════════════════════════════════╝"
-            ui_print " "
-            ui_print "⊳ Profile: $PROFILE"
-            ui_print "⊳ Features: SukiSU + SUSFS"
-            ui_print " "
-          }
-          
-          ## AnyKernel properties
-          properties() {
-            kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
-            do.devicecheck=1
-            do.modules=0
-            do.systemless=1
-            do.cleanup=1
-            do.cleanuponabort=0
-            device.name1=shennong
-            device.name2=2311DRN47C
-            device.name3=Xiaomi 14 Pro
-            supported.versions=14-15
-            supported.patchlevels=
-          }
-          
-          ## AnyKernel install
-          block=/dev/block/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-          
-          . tools/ak3-core.sh;
-          
-          # Set profile
-          PROFILE="$PROFILE"
-          
-          begin;
-          dump_boot;
-          
-          ui_print "⊳ Writing kernel...";
-          write_boot;
-          
-          ui_print " ";
-          ui_print "✅ AngelBeats Kernel installed successfully!";
-          ui_print " ";
-          AKEOF
+          cat > anykernel.sh << 'EOF'
+#!/bin/sh
+# AnyKernel3 Ramdisk Mod Script
+# osm0sis @ xda-developers
+
+## AnyKernel setup
+begin() {
+  ui_print " "
+  ui_print "╔══════════════════════════════════════╗"
+  ui_print "║     AngelBeats Kernel for Xiaomi     ║"
+  ui_print "║           14 Pro (shennong)          ║"
+  ui_print "╚══════════════════════════════════════╝"
+  ui_print " "
+  ui_print "⊳ Profile: $PROFILE"
+  ui_print "⊳ Features: SukiSU + SUSFS"
+  ui_print " "
+}
+
+## AnyKernel properties
+properties() {
+  kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
+  do.devicecheck=1
+  do.modules=0
+  do.systemless=1
+  do.cleanup=1
+  do.cleanuponabort=0
+  device.name1=shennong
+  device.name2=2311DRN47C
+  device.name3=Xiaomi 14 Pro
+  supported.versions=14-15
+  supported.patchlevels=
+}
+
+## AnyKernel install
+block=/dev/block/by-name/boot;
+is_slot_device=0;
+ramdisk_compression=auto;
+
+. tools/ak3-core.sh;
+
+# Set profile
+PROFILE="$PROFILE"
+
+begin;
+dump_boot;
+
+ui_print "⊳ Writing kernel...";
+write_boot;
+
+ui_print " ";
+ui_print "✅ AngelBeats Kernel installed successfully!";
+ui_print " ";
+EOF
           
           # Make script executable
           chmod +x anykernel.sh
@@ -500,40 +500,40 @@ jobs:
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
           
           # Create info file
-          cat > KERNEL_INFO.txt << 'INFOEOF'
-          ┌─────────────────────────────────────────────┐
-          │   AngelBeats Kernel for Xiaomi 14 Pro       │
-          │           (shennong/2311DRN47C)             │
-          └─────────────────────────────────────────────┘
-          
-          📋 Features:
-          • SukiSU Ultra Root Support
-          • SUSFS v2.0.0 (Systemless Overlay)
-          • KernelSU Integration
-          • Battery Optimization Profiles
-          • BFQ I/O Scheduler
-          • WireGuard VPN
-          • ZRAM Compression
-          
-          ⚡ Profiles:
-          • Extreme Battery: Maximum power saving
-          • Balanced: Balanced performance/battery
-          • Performance: Maximum performance
-          
-          📱 Device: Xiaomi 14 Pro (shennong)
-          🔧 Kernel: 6.1.x
-          📦 Profile: ${{ inputs.profile }}
-          
-          ⚠️  Installation:
-          1. Backup current kernel/boot
-          2. Flash in TWRP or KernelFlasher
-          3. Reboot and enjoy!
-          
-          🐛 Report issues:
-          • Include full logcat
-          • Mention profile used
-          • Device state before flash
-          INFOEOF
+          cat > KERNEL_INFO.txt << 'EOF'
+┌─────────────────────────────────────────────┐
+│   AngelBeats Kernel for Xiaomi 14 Pro       │
+│           (shennong/2311DRN47C)             │
+└─────────────────────────────────────────────┘
+
+📋 Features:
+• SukiSU Ultra Root Support
+• SUSFS v2.0.0 (Systemless Overlay)
+• KernelSU Integration
+• Battery Optimization Profiles
+• BFQ I/O Scheduler
+• WireGuard VPN
+• ZRAM Compression
+
+⚡ Profiles:
+• Extreme Battery: Maximum power saving
+• Balanced: Balanced performance/battery
+• Performance: Maximum performance
+
+📱 Device: Xiaomi 14 Pro (shennong)
+🔧 Kernel: 6.1.x
+📦 Profile: ${{ inputs.profile }}
+
+⚠️  Installation:
+1. Backup current kernel/boot
+2. Flash in TWRP or KernelFlasher
+3. Reboot and enjoy!
+
+🐛 Report issues:
+• Include full logcat
+• Mention profile used
+• Device state before flash
+EOF
       
       - name: 📤 Upload Artifacts
         uses: actions/upload-artifact@v4
