@@ -57,7 +57,7 @@ jobs:
             mkdir -p drivers/misc/hwid
             
             # Create Kconfig
-            cat << 'EOF' > drivers/misc/hwid/Kconfig
+            cat > drivers/misc/hwid/Kconfig << 'EOF'
 # Dummy hwid Kconfig
 config HWID_DUMMY
     bool "Dummy HWID"
@@ -67,7 +67,7 @@ config HWID_DUMMY
 EOF
             
             # Create Makefile
-            cat << 'EOF' > drivers/misc/hwid/Makefile
+            cat > drivers/misc/hwid/Makefile << 'EOF'
 # Dummy hwid Makefile
 # obj-$(CONFIG_HWID_DUMMY) += hwid.o
 EOF
