@@ -12,18 +12,6 @@ on:
           - extreme_battery
           - balanced
           - performance
-  
-  # 🆕 THÊM PHẦN NÀY - Auto trigger khi push
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/xiaomi14pro-angelbeats.yml'
-  
-  # 🆕 THÊM PHẦN NÀY - Manual trigger khi pull request
-  pull_request:
-    branches:
-      - main
 
 jobs:
   build:
@@ -33,15 +21,6 @@ jobs:
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v4
-      
-      # Set default profile khi auto-run (không có input)
-      - name: Set default profile
-        run: |
-          if [ -z "${{ inputs.profile }}" ]; then
-            echo "PROFILE=balanced" >> $GITHUB_ENV
-          else
-            echo "PROFILE=${{ inputs.profile }}" >> $GITHUB_ENV
-          fi
       
       - name: 🧹 Free up disk space
         run: |
@@ -63,7 +42,7 @@ jobs:
         run: |
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
-            -b shennong-t-oss \
+            -b shennong-u-oss \
             kernel
           cd kernel
           make kernelversion 2>/dev/null || cat Makefile | grep "^VERSION\|^PATCHLEVEL\|^SUBLEVEL" | head -3
@@ -84,6 +63,7 @@ jobs:
         run: |
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
+          # Copy SUSFS source files
           if [ -d "susfs4ksu/ksu_susfs" ]; then
             cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
             cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
@@ -103,6 +83,7 @@ jobs:
         run: |
           mkdir -p arch/arm64/configs/vendor
           
+          # Extreme Battery Config
           cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_extreme_battery.config
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -147,6 +128,7 @@ jobs:
           CONFIG_WIREGUARD=y
           CONFIG_EOF
           
+          # Balanced Config
           cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_balanced.config
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -185,6 +167,7 @@ jobs:
           CONFIG_WIREGUARD=y
           CONFIG_EOF
           
+          # Performance Config
           cat << 'CONFIG_EOF' > arch/arm64/configs/vendor/angelbeats_performance.config
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -215,6 +198,7 @@ jobs:
           CONFIG_EOF
           
           echo "✅ Configs created!"
+          ls -la arch/arm64/configs/vendor/angelbeats_*.config
       
       - name: 🔨 Clone Proton Clang
         run: |
@@ -223,11 +207,13 @@ jobs:
       - name: ⚙️ Merge configs
         working-directory: kernel
         run: |
-          # Dùng PROFILE từ env (set ở step đầu)
-          BATTERY_CONFIG="angelbeats_${PROFILE}.config"
+          BATTERY_CONFIG="angelbeats_balanced.config"
           
-          echo "Using profile: $PROFILE"
-          echo "Config file: $BATTERY_CONFIG"
+          case "${{ inputs.profile }}" in
+            extreme_battery) BATTERY_CONFIG="angelbeats_extreme_battery.config" ;;
+            balanced) BATTERY_CONFIG="angelbeats_balanced.config" ;;
+            performance) BATTERY_CONFIG="angelbeats_performance.config" ;;
+          esac
           
           cat arch/arm64/configs/gki_defconfig \
               arch/arm64/configs/vendor/shennong_GKI.config \
@@ -288,6 +274,7 @@ jobs:
           write_boot;
           AKEOF
           
+          PROFILE="${{ inputs.profile }}"
           DATE=$(date +%Y%m%d-%H%M)
           ZIPNAME="AngelBeats-SukiSU-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
           
@@ -299,17 +286,23 @@ jobs:
           cat << 'INFOEOF' > KERNEL_INFO.txt
           AngelBeats-Style Kernel for Xiaomi 14 Pro
           
-          Profile: ${PROFILE}
-          Features: SukiSU Ultra + SUSFS v2.0.0 + KPM
-          Device: Xiaomi 14 Pro (shennong)
+          Features:
+          - SukiSU Ultra root
+          - SUSFS v2.0.0
+          - KPM + KProbes
+          - Battery optimization
+          - BFQ I/O Scheduler
           
-          Flash via TWRP
+          Device: Xiaomi 14 Pro (shennong)
+          Kernel: 6.1.118
+          
+          Flash via TWRP or Kernel Manager
           INFOEOF
       
       - name: 📤 Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-14-Pro-Kernel-${{ env.PROFILE }}
+          name: Xiaomi-14-Pro-Kernel-${{ inputs.profile }}
           path: |
             *.zip
             KERNEL_INFO.txt
@@ -319,4 +312,4 @@ jobs:
         run: |
           echo "✅ BUILD SUCCESSFUL!"
           echo "Kernel: ${{ env.ZIPNAME }}"
-          echo "Profile: ${{ env.PROFILE }}"
+          echo "Profile: ${{ inputs.profile }}"
