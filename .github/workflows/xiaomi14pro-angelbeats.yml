@@ -1,10 +1,10 @@
-name: Xiaomi 14 Pro Kernel (SukiSU + SUSFS + AnyKernel3)
+name: Xiaomi 14 Pro Kernel (AngelBeats + SukiSU + SUSFS | GKI strict)
 
 on:
   workflow_dispatch:
     inputs:
       profile:
-        description: 'Battery profile'
+        description: 'AngelBeats profile'
         required: false
         default: balanced
         type: choice
@@ -15,8 +15,8 @@ on:
 
 jobs:
   build:
+    name: Build Kernel (GKI strict)
     runs-on: ubuntu-22.04
-    name: Build Kernel
 
     steps:
     # ================= BASIC =================
@@ -41,9 +41,9 @@ jobs:
           g++-multilib gcc-multilib git gnupg gperf \
           lib32readline-dev lib32z1-dev liblz4-tool \
           libncurses5-dev libssl-dev libxml2-utils \
-          lzop pngcrush rsync squashfs-tools xsltproc \
-          zip zlib1g-dev python3 python-is-python3 \
-          wget cpio kmod libelf-dev elfutils
+          lzop rsync xsltproc zip zlib1g-dev \
+          python3 python-is-python3 wget cpio kmod \
+          libelf-dev elfutils
 
     # ================= KERNEL SOURCE =================
     - name: Clone kernel source
@@ -54,91 +54,97 @@ jobs:
         cd kernel
         make kernelversion || true
 
-    # ================= FIXES FOR 6.1 =================
-    - name: Fix setup.c (early_init_dt_scan)
-      working-directory: kernel
-      run: |
-        FILE=arch/arm64/kernel/setup.c
-        if grep -q "early_init_dt_scan(" "$FILE"; then
-          sed -i 's/early_init_dt_scan([^)]*);/early_init_dt_scan_nodes();/g' "$FILE"
-        fi
-
-    - name: Fix topology.c (cpu_coregroup_mask)
-      working-directory: kernel
-      run: |
-        FILE=kernel/sched/topology.c
-        if grep -q "cpu_coregroup_mask" "$FILE"; then
-          if ! grep -q "#define cpu_coregroup_mask" "$FILE"; then
-            sed -i '/^#include/a \
-#ifndef cpu_coregroup_mask\n#define cpu_coregroup_mask(cpu) cpu_cpu_mask(cpu)\n#endif\n' "$FILE"
-          fi
-        fi
-
-    # ================= SukiSU =================
-    - name: Integrate SukiSU Ultra
-      working-directory: kernel
-      run: |
-        curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh | bash -s builtin
-        test -d KernelSU
-
-    # ================= SUSFS FULL =================
-    - name: Integrate SUSFS (FULL)
-      working-directory: kernel
-      run: |
-        git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
-
-        # KernelSU side
-        cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/
-        cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/
-
-        # Kernel fs/ include/ patches
-        cp -rv susfs4ksu/kernel_patches/fs/* fs/
-        cp -rv susfs4ksu/kernel_patches/include/* include/
-
-    # ================= CONFIG =================
-    - name: Create vendor config
-      working-directory: kernel
-      run: |
-        mkdir -p arch/arm64/configs/vendor
-
-        cat > arch/arm64/configs/vendor/angelbeats.config << EOF
-        CONFIG_KSU=y
-        CONFIG_KSU_SUSFS=y
-        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-        CONFIG_KSU_SUSFS_SUS_PATH=y
-        CONFIG_KSU_SUSFS_SUS_MOUNT=y
-        CONFIG_KSU_SUSFS_SUS_KSTAT=y
-        CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-        CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-        CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-        CONFIG_KSU_SUSFS_ENABLE_LOG=y
-
-        CONFIG_KPROBES=y
-        CONFIG_KPROBE_EVENTS=y
-        CONFIG_HAVE_KPROBES=y
-        CONFIG_KALLSYMS=y
-        CONFIG_KALLSYMS_ALL=y
-
-        CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-        CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-        CONFIG_IOSCHED_BFQ=y
-        CONFIG_ZRAM=y
-        CONFIG_LZ4_COMPRESS=y
-        EOF
-
-    - name: Merge defconfig
-      working-directory: kernel
-      run: |
-        cat arch/arm64/configs/gki_defconfig \
-            arch/arm64/configs/vendor/shennong_GKI.config \
-            arch/arm64/configs/vendor/angelbeats.config \
-            > .config
-
     # ================= TOOLCHAIN =================
     - name: Clone Proton Clang
       run: |
         git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
+
+    # ================= SukiSU =================
+    - name: Integrate SukiSU Ultra (builtin, GKI-safe)
+      working-directory: kernel
+      run: |
+        curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh \
+          | bash -s builtin
+        test -d KernelSU
+
+    # ================= SUSFS (FULL, SAFE) =================
+    - name: Integrate SUSFS (fs + include only)
+      working-directory: kernel
+      run: |
+        git clone --depth=1 \
+          https://gitlab.com/simonpunk/susfs4ksu.git \
+          -b gki-android14-6.1 /tmp/susfs
+
+        # fs
+        cp -rv /tmp/susfs/kernel_patches/fs/susfs fs/
+
+        # include
+        cp -v /tmp/susfs/kernel_patches/include/linux/susfs*.h include/linux/
+
+    # ================= ANGELBEATS CONFIG =================
+    - name: Create AngelBeats vendor config
+      working-directory: kernel
+      run: |
+        mkdir -p arch/arm64/configs/vendor
+
+        cat > arch/arm64/configs/vendor/angelbeats.config << 'EOF'
+# ================= ROOT =================
+CONFIG_KSU=y
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+
+# ================= ANGELBEATS =================
+# CPU / Scheduler
+CONFIG_CPU_FREQ=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_SCHED_MC=y
+CONFIG_CPU_IDLE=y
+
+# IO
+CONFIG_IOSCHED_BFQ=y
+CONFIG_BFQ_GROUP_IOSCHED=y
+
+# Memory
+CONFIG_ZRAM=y
+CONFIG_ZRAM_DEF_COMP_LZ4=y
+CONFIG_LZ4_COMPRESS=y
+
+# Power
+CONFIG_PM=y
+CONFIG_PM_WAKELOCKS_LIMIT=200
+
+# Thermal
+CONFIG_THERMAL=y
+
+# Debug (CTS-safe)
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+EOF
+
+    # ================= CONFIG MERGE (GKI STRICT) =================
+    - name: Merge GKI configs properly
+      working-directory: kernel
+      run: |
+        export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+
+        make O=out ARCH=arm64 gki_defconfig
+
+        scripts/kconfig/merge_config.sh -m \
+          out/.config \
+          arch/arm64/configs/vendor/shennong_GKI.config \
+          arch/arm64/configs/vendor/angelbeats.config
+
+        make O=out ARCH=arm64 olddefconfig
 
     # ================= BUILD =================
     - name: Build kernel
@@ -147,41 +153,68 @@ jobs:
         export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
         export ARCH=arm64
         export SUBARCH=arm64
-        export CC=clang
-        export LLVM=1
-        export LLVM_IAS=1
 
-        make olddefconfig
-        make -j$(nproc) 2>&1 | tee ../build.log
+        make -j$(nproc) O=out \
+          CC=clang \
+          LLVM=1 \
+          LLVM_IAS=1 \
+          2>&1 | tee ../build.log
 
-        test -f arch/arm64/boot/Image.gz
+        test -f out/arch/arm64/boot/Image.gz
+
+    # ================= ABI CHECK =================
+    - name: Check GKI ABI (CTS-safe)
+      working-directory: kernel
+      run: |
+        echo "🧪 Checking GKI ABI..."
+
+        if [ ! -f build/abi/abi_gki_aarch64.xml ]; then
+          echo "⚠️ No ABI definition found, skipping"
+          exit 0
+        fi
+
+        make O=out ARCH=arm64 LLVM=1 headers_install
+
+        build/abi/abi_diff.sh \
+          build/abi/abi_gki_aarch64.xml \
+          out \
+          --report
+
+        if grep -q "ERROR" abi.report; then
+          echo "❌ ABI BREAK DETECTED"
+          cat abi.report
+          exit 1
+        fi
+
+        echo "✅ ABI OK"
 
     # ================= ANYKERNEL3 =================
-    - name: Package AnyKernel3
+    - name: Package AnyKernel3 (A/B auto)
       run: |
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3
-        cp kernel/arch/arm64/boot/Image.gz AnyKernel3/
+        cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
 
         cat > AnyKernel3/anykernel.sh << 'EOF'
-        properties() { '
-        kernel.string=AngelBeats-SukiSU-SUSFS
-        do.devicecheck=1
-        do.modules=0
-        do.systemless=1
-        device.name1=shennong
-        device.name2=Xiaomi 14 Pro
-        supported.versions=14-15
-        '; }
-        block=/dev/block/by-name/boot;
-        is_slot_device=auto;
-        ramdisk_compression=auto;
-        . tools/ak3-core.sh;
-        dump_boot;
-        write_boot;
-        EOF
+properties() {
+  kernel.string=AngelBeats-SukiSU-SUSFS
+  do.devicecheck=1
+  do.modules=0
+  do.systemless=1
+  do.cleanup=1
+  device.name1=shennong
+  device.name2=Xiaomi 14 Pro
+  supported.versions=14-15
+}
+block=auto;
+is_slot_device=auto;
+ramdisk_compression=auto;
+. tools/ak3-core.sh;
+dump_boot;
+write_boot;
+EOF
 
         DATE=$(date +%Y%m%d-%H%M)
-        ZIP=AngelBeats-Xiaomi14Pro-SUSFS-${{ env.PROFILE }}-${DATE}.zip
+        ZIP=AngelBeats-Xiaomi14Pro-GKI-${{ env.PROFILE }}-${DATE}.zip
         cd AnyKernel3
         zip -r9 ../$ZIP *
         cd ..
@@ -191,7 +224,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: Xiaomi14Pro-SUSFS
+        name: Xiaomi14Pro-AngelBeats-GKI
         path: |
           *.zip
           build.log
