@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+    # ================= BASIC =================
     - name: Checkout
       uses: actions/checkout@v4
 
@@ -35,13 +36,14 @@ jobs:
         sudo apt update
         sudo apt install -y \
           bc bison build-essential ccache curl flex \
-          g++-multilib gcc-multilib git gnupg gperf \
+          g++-multilib gcc-multilib git gperf \
           lib32readline-dev lib32z1-dev liblz4-tool \
           libncurses5-dev libssl-dev libxml2-utils \
           lzop rsync xsltproc zip zlib1g-dev \
           python3 python-is-python3 wget cpio kmod \
           libelf-dev elfutils
 
+    # ================= KERNEL SOURCE =================
     - name: Clone kernel source
       run: |
         git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
@@ -53,59 +55,132 @@ jobs:
       run: |
         git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
 
-    - name: Integrate SukiSU
+    # ================= SukiSU =================
+    - name: Integrate SukiSU (builtin)
       working-directory: kernel
       run: |
         curl -LSs https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh \
           | bash -s builtin
 
-    - name: Integrate SUSFS (fs + include)
+    # ================= SUSFS =================
+    - name: Integrate SUSFS (FULL)
       working-directory: kernel
       run: |
         git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git \
           -b gki-android14-6.1 /tmp/susfs
+
+        # kernel fs/
         cp -rv /tmp/susfs/kernel_patches/fs/susfs fs/
+
+        # kernel include/
         cp -v /tmp/susfs/kernel_patches/include/linux/susfs*.h include/linux/
 
+        # KernelSU side
+        cp -v /tmp/susfs/ksu_susfs/*.c KernelSU/kernel/
+        cp -v /tmp/susfs/ksu_susfs/*.h KernelSU/kernel/
+
+    # ================= CONFIG =================
     - name: AngelBeats config
       working-directory: kernel
       run: |
         mkdir -p arch/arm64/configs/vendor
+
         cat > arch/arm64/configs/vendor/angelbeats.config << 'EOF'
 CONFIG_KSU=y
 CONFIG_KSU_SUSFS=y
+
+# AngelBeats tuning (GKI-safe)
 CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
 CONFIG_IOSCHED_BFQ=y
 CONFIG_ZRAM=y
 CONFIG_ZRAM_DEF_COMP_LZ4=y
-CONFIG_PM=y
-CONFIG_THERMAL=y
+
+# Required for KSU
+CONFIG_KPROBES=y
+CONFIG_HAVE_KPROBES=y
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
 EOF
 
     - name: Merge GKI configs
       working-directory: kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+
         make O=out ARCH=arm64 gki_defconfig
+
         scripts/kconfig/merge_config.sh -m \
           out/.config \
           arch/arm64/configs/vendor/shennong_GKI.config \
           arch/arm64/configs/vendor/angelbeats.config
+
         make O=out ARCH=arm64 olddefconfig
 
+    # ================= BUILD =================
     - name: Build kernel
       working-directory: kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
-        make -j$(nproc) O=out LLVM=1 LLVM_IAS=1
+        make -j$(nproc) O=out ARCH=arm64 LLVM=1 LLVM_IAS=1
 
+        test -f out/arch/arm64/boot/Image.gz
+
+    # ================= ABI CHECK =================
+    - name: GKI ABI check (CTS-safe)
+      working-directory: kernel
+      run: |
+        if [ ! -d build/abi ]; then
+          echo "⚠️ No ABI data in source, skipping"
+          exit 0
+        fi
+
+        build/abi/abi_diff.sh \
+          build/abi/abi_gki_aarch64.xml \
+          out \
+          --report
+
+        if grep -q "ERROR" abi.report; then
+          echo "❌ ABI BREAK DETECTED"
+          cat abi.report
+          exit 1
+        fi
+
+        echo "✅ ABI OK"
+
+    # ================= ANYKERNEL3 =================
     - name: Package AnyKernel3 (A/B auto)
       run: |
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3
-        cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
-        cd AnyKernel3
-        zip -r9 ../AngelBeats-GKI-${{ env.PROFILE }}.zip *
 
+        cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
+
+        cat > AnyKernel3/anykernel.sh << 'EOF'
+properties() {
+  kernel.string=AngelBeats-SukiSU-SUSFS
+  do.devicecheck=1
+  do.modules=0
+  do.systemless=1
+  device.name1=shennong
+  device.name2=Xiaomi 14 Pro
+  supported.versions=14-15
+}
+block=auto;
+is_slot_device=auto;
+ramdisk_compression=auto;
+. tools/ak3-core.sh;
+dump_boot;
+write_boot;
+EOF
+
+        cd AnyKernel3
+        ZIP=AngelBeats-Xiaomi14Pro-${{ env.PROFILE }}.zip
+        zip -r9 ../$ZIP *
+        cd ..
+
+        echo "ZIPNAME=$ZIP" >> $GITHUB_ENV
+
+    # ================= ARTIFACT =================
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
