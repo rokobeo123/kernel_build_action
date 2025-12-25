@@ -203,7 +203,11 @@ jobs:
       - name: 🔨 Clone Proton Clang
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
-      
+      - name: 🛠️ Fix missing hwid Kconfig
+        working-directory: kernel
+        run: |
+          mkdir -p drivers/misc/hwid
+          touch drivers/misc/hwid/Kconfig
       - name: ⚙️ Merge configs
         working-directory: kernel
         run: |
