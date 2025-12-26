@@ -30,10 +30,10 @@ jobs:
       
       - name: Set profile
         run: |
-          if [ -z "${{ inputs.profile }}" ]; then
+          if [ -z "${{ github.event.inputs.profile }}" ]; then
             echo "PROFILE=balanced" >> $GITHUB_ENV
           else
-            echo "PROFILE=${{ inputs.profile }}" >> $GITHUB_ENV
+            echo "PROFILE=${{ github.event.inputs.profile }}" >> $GITHUB_ENV
           fi
       
       - name: 🧹 Free space
@@ -187,10 +187,13 @@ jobs:
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
       
-      - name: 🛠️ Fix compilation + Aggressive error suppression
+      - name: 🛠️ Fix compilation
         working-directory: kernel
         run: |
           echo "Applying compilation fixes..."
+          
+          # Keep MODULES enabled (CRITICAL FIX)
+          scripts/config --enable CONFIG_MODULES
           
           # Disable WERROR
           scripts/config --disable CONFIG_WERROR
@@ -205,15 +208,12 @@ jobs:
           scripts/config --enable CONFIG_OF_EARLY_FLATTREE
           scripts/config --enable CONFIG_OF_FLATTREE
           
-          # Disable problematic drivers that might fail
-          scripts/config --disable CONFIG_MODULES
-          scripts/config --disable CONFIG_DEBUG_INFO
-          scripts/config --disable CONFIG_DEBUG_INFO_BTF
-          scripts/config --disable CONFIG_GDB_SCRIPTS
+          # Keep essential debug info
+          scripts/config --enable CONFIG_DEBUG_INFO
+          scripts/config --enable CONFIG_DEBUG_INFO_BTF
           
-          # Disable some HID drivers that might cause issues
-          scripts/config --disable CONFIG_HID_STEAM
-          scripts/config --disable CONFIG_HID_PLAYSTATION
+          # Fix Android debug_kinfo issue - disable if causing problems
+          scripts/config --disable CONFIG_DEBUG_KINFO || true
           
           echo "✅ Configs fixed!"
       
@@ -236,6 +236,12 @@ jobs:
           echo "═══════════════════════════════"
           
           make olddefconfig 2>&1 || true
+          
+          # Patch the problematic debug_kinfo.c file
+          if [ -f "drivers/android/debug_kinfo.c" ]; then
+            echo "Patching debug_kinfo.c to fix struct module issue..."
+            sed -i 's/#include <linux\/module.h>/#include <linux\/module.h>\n#include <linux\/module_internal.h>/' drivers/android/debug_kinfo.c
+          fi
           
           echo ""
           echo "🚀 Starting build..."
