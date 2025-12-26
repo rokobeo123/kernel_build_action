@@ -56,7 +56,7 @@ jobs:
         run: |
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
-            -b shennong-t-oss \
+            -b shennong-u-oss \
             kernel
           cd kernel
           make kernelversion 2>/dev/null || cat Makefile | head -5
