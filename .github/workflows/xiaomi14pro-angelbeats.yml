@@ -41,7 +41,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo apt-get clean
       
-      - name: 📦 Install deps
+      - name: 📦 Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex \
@@ -52,72 +52,77 @@ jobs:
             zlib1g-dev python3 python-is-python3 wget cpio kmod \
             libelf-dev libelf1 elfutils
       
-      - name: 📂 Clone kernel (shennong-u-oss)
+      - name: 📂 Clone kernel (shennong-u-oss - Android 14)
         run: |
+          echo "📥 Cloning Xiaomi 14 Pro kernel..."
           git clone --depth=1 \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
             -b shennong-u-oss \
             kernel
+          
           cd kernel
+          echo "✅ Kernel cloned!"
           make kernelversion 2>/dev/null || cat Makefile | head -5
       
-      - name: 🔧 Fix Kconfig
+      - name: 🔧 Fix missing Kconfig
         working-directory: kernel
         run: |
           if [ -f "drivers/misc/Kconfig" ]; then
             sed -i '/source "drivers\/misc\/hwid\/Kconfig"/d' drivers/misc/Kconfig
           fi
       
-      - name: 🔧 Integrate SukiSU
+      - name: 🔧 Integrate SukiSU Ultra
         working-directory: kernel
         run: |
-          echo "Installing SukiSU..."
+          echo "🚀 Installing SukiSU with builtin SUSFS config..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           
           if [ ! -d "KernelSU" ]; then
-            echo "❌ SukiSU failed!"
+            echo "❌ SukiSU integration failed!"
             exit 1
           fi
           
           echo "✅ SukiSU integrated!"
       
-      - name: 📥 Clone SUSFS and copy by exact structure
+      - name: 📥 Clone SUSFS and copy 3 files exactly
         working-directory: kernel
         run: |
           echo "📥 Cloning SUSFS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
           echo ""
-          echo "📋 SUSFS structure in kernel_patches/:"
-          ls -la susfs4ksu/kernel_patches/
+          echo "📋 SUSFS structure:"
+          tree susfs4ksu/kernel_patches/ -L 3 2>/dev/null || find susfs4ksu/kernel_patches/ -type f
           
           echo ""
-          echo "📁 Copying SUSFS files..."
+          echo "📁 Copying SUSFS files (exactly 3 files)..."
           
           cd susfs4ksu/kernel_patches
           
-          # ============================================
-          # Copy fs/ directory
-          # ============================================
-          if [ -d "fs" ]; then
-            echo "Copying fs/ → ../../fs/"
-            cp -rv fs/* ../../fs/ 2>/dev/null || true
+          # File 1: fs/susfs.c → kernel/fs/susfs.c
+          if [ -f "fs/susfs.c" ]; then
+            echo "✅ Copying: fs/susfs.c → ../../fs/susfs.c"
+            cp -v fs/susfs.c ../../fs/
+          else
+            echo "❌ fs/susfs.c NOT FOUND!"
           fi
           
-          # ============================================
-          # Copy include/ directory
-          # ============================================
-          if [ -d "include" ]; then
-            echo "Copying include/ → ../../include/"
-            cp -rv include/* ../../include/ 2>/dev/null || true
+          # File 2: include/linux/susfs_def.h → kernel/include/linux/susfs_def.h
+          if [ -f "include/linux/susfs_def.h" ]; then
+            echo "✅ Copying: include/linux/susfs_def.h → ../../include/linux/susfs_def.h"
+            mkdir -p ../../include/linux
+            cp -v include/linux/susfs_def.h ../../include/linux/
+          else
+            echo "❌ include/linux/susfs_def.h NOT FOUND!"
           fi
           
-          # ============================================
-          # Copy KernelSU/ directory
-          # ============================================
-          if [ -d "KernelSU" ]; then
-            echo "Copying KernelSU/ → ../../KernelSU/"
-            cp -rv KernelSU/* ../../KernelSU/ 2>/dev/null || true
+          # File 3: include/linux/susfs.h → kernel/include/linux/susfs.h
+          if [ -f "include/linux/susfs.h" ]; then
+            echo "✅ Copying: include/linux/susfs.h → ../../include/linux/susfs.h"
+            mkdir -p ../../include/linux
+            cp -v include/linux/susfs.h ../../include/linux/
+          else
+            echo "❌ include/linux/susfs.h NOT FOUND!"
           fi
           
           cd ../..
@@ -125,24 +130,34 @@ jobs:
           echo ""
           echo "✅ SUSFS files copied!"
           echo ""
-          echo "=== Verification ==="
-          
-          echo "fs/:"
-          ls -la fs/*susfs* 2>/dev/null || echo "No susfs files"
-          
-          echo ""
-          echo "include/linux/:"
-          ls -la include/linux/susfs.h 2>/dev/null && echo "✅ susfs.h found!" || echo "❌ susfs.h missing!"
+          echo "═══════════════════════════════════"
+          echo "       VERIFICATION"
+          echo "═══════════════════════════════════"
           
           echo ""
-          echo "KernelSU/kernel/:"
-          ls -la KernelSU/kernel/*susfs* 2>/dev/null || echo "No susfs files"
+          echo "File 1: fs/susfs.c"
+          ls -lh fs/susfs.c 2>/dev/null && echo "  ✅ Found!" || echo "  ❌ Missing!"
           
           echo ""
-          echo "All includes:"
-          find include -name "*susfs*" 2>/dev/null || echo "None"
+          echo "File 2: include/linux/susfs_def.h"
+          ls -lh include/linux/susfs_def.h 2>/dev/null && echo "  ✅ Found!" || echo "  ❌ Missing!"
+          
+          echo ""
+          echo "File 3: include/linux/susfs.h"
+          ls -lh include/linux/susfs.h 2>/dev/null && echo "  ✅ Found!" || echo "  ❌ Missing!"
+          
+          echo ""
+          echo "═══════════════════════════════════"
+          
+          # Check if all files exist
+          if [ -f "fs/susfs.c" ] && [ -f "include/linux/susfs_def.h" ] && [ -f "include/linux/susfs.h" ]; then
+            echo "✅ All SUSFS files present!"
+          else
+            echo "❌ Some SUSFS files missing!"
+            exit 1
+          fi
       
-      - name: ⚡ Create battery configs
+      - name: ⚡ Create AngelBeats battery configs
         working-directory: kernel
         run: |
           mkdir -p arch/arm64/configs/vendor
@@ -229,8 +244,10 @@ jobs:
           CONFIG_LZ4_COMPRESS=y
           CONFIG_WIREGUARD=y
           END
+          
+          echo "✅ Battery configs created!"
       
-      - name: 🔨 Clone Clang
+      - name: 🔨 Clone Proton Clang
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang clang
       
@@ -238,12 +255,16 @@ jobs:
         working-directory: kernel
         run: |
           BATTERY_CONFIG="angelbeats_${PROFILE}.config"
+          echo "Profile: $PROFILE"
+          
           cat arch/arm64/configs/gki_defconfig \
               arch/arm64/configs/vendor/shennong_GKI.config \
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
+          
+          echo "✅ Configs merged!"
       
-      - name: 🛠️ Fix compilation
+      - name: 🛠️ Fix compilation issues
         working-directory: kernel
         run: |
           scripts/config --disable CONFIG_WERROR
@@ -268,29 +289,31 @@ jobs:
           echo "Compiler:"
           clang --version | head -1
           
-          echo "Kernel:"
+          echo "Kernel version:"
           make kernelversion
           
-          echo "Config:"
+          echo "Resolving config..."
           make olddefconfig 2>&1 || true
           
           echo ""
-          echo "Building..."
+          echo "🚀 Building with $(nproc) cores..."
+          echo ""
+          
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
           
           if [ -f arch/arm64/boot/Image.gz ]; then
             echo ""
-            echo "✅ ============================="
-            echo "✅  BUILD SUCCESSFUL!"
-            echo "✅ ============================="
+            echo "╔═══════════════════════════════╗"
+            echo "║  ✅ BUILD SUCCESSFUL! ✅     ║"
+            echo "╚═══════════════════════════════╝"
             ls -lh arch/arm64/boot/Image.gz
           else
             echo ""
-            echo "❌ ============================="
-            echo "❌  BUILD FAILED!"
-            echo "❌ ============================="
+            echo "╔═══════════════════════════════╗"
+            echo "║  ❌ BUILD FAILED! ❌         ║"
+            echo "╚═══════════════════════════════╝"
             tail -200 ../build.log
             grep -i "error:" ../build.log | tail -50
             exit 1
@@ -331,18 +354,27 @@ jobs:
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
           
           cat > KERNEL_INFO.txt << 'INFO'
-          🔋 AngelBeats-Style Kernel
-          📱 Xiaomi 14 Pro (shennong)
+          ╔════════════════════════════════════════╗
+          ║  🔋 AngelBeats-Style Kernel          ║
+          ║  📱 Xiaomi 14 Pro (shennong)         ║
+          ╚════════════════════════════════════════╝
           
           ✅ Features:
-          - SukiSU Ultra (root)
-          - SUSFS v2.0.0 (root hiding)
-          - KPM + KProbes
-          - Battery optimization
-          - BFQ I/O Scheduler
+            • SukiSU Ultra (root solution)
+            • SUSFS v2.0.0 (root hiding)
+            • KPM + KProbes support
+            • BBG (Baseband Guard)
+            • AngelBeats battery optimization
+            • BFQ I/O Scheduler
+            • Schedutil CPU Governor
           
-          📥 Flash via TWRP
-          🔋 Enjoy better battery!
+          📥 Installation:
+            1. Backup boot.img
+            2. Flash via TWRP
+            3. Reboot
+            4. Install KernelSU Manager
+          
+          🔋 Enjoy better battery life!
           INFO
           
           echo "✅ Packaged: ${ZIPNAME}"
@@ -360,12 +392,15 @@ jobs:
       - name: 🎉 Build complete!
         run: |
           echo ""
-          echo "╔═══════════════════════════════╗"
-          echo "║   ✅ BUILD SUCCESSFUL! ✅    ║"
-          echo "╚═══════════════════════════════╝"
+          echo "╔═══════════════════════════════════════╗"
+          echo "║                                       ║"
+          echo "║      ✅ BUILD SUCCESSFUL! ✅         ║"
+          echo "║                                       ║"
+          echo "╚═══════════════════════════════════════╝"
           echo ""
           echo "📦 Kernel: ${{ env.ZIPNAME }}"
           echo "⚡ Profile: ${{ env.PROFILE }}"
           echo ""
-          echo "📥 Download from Artifacts!"
+          echo "📥 Download from Artifacts section!"
+          echo "⚡ Flash via TWRP and enjoy!"
           echo ""
