@@ -304,72 +304,68 @@ jobs:
           
           echo "✅ Configuration complete!"
       
-      - name: 🩹 Create SUSFS stub functions if missing
+      - name: 🩹 Patch SUSFS to add missing functions
         working-directory: kernel
         run: |
-          echo "🩹 Creating SUSFS integration functions..."
+          echo "🩹 Patching fs/susfs.c to add missing functions..."
           
-          # Check what SUSFS files we have
-          echo "Current SUSFS files in KernelSU/kernel/:"
-          ls -la KernelSU/kernel/ | grep -i susfs || echo "  None found"
-          echo ""
+          # Check if susfs.c exists
+          if [ ! -f "fs/susfs.c" ]; then
+            echo "❌ fs/susfs.c not found!"
+            exit 1
+          fi
           
-          # Create ksu_susfs.c with required functions
-          cat > KernelSU/kernel/ksu_susfs.c << 'SUSFS_CODE'
-          #include <linux/types.h>
-          #include <linux/fs.h>
-          #include <linux/mount.h>
-          #include <linux/kernel.h>
+          # Add the missing functions directly to susfs.c
+          # We'll add them at the beginning of the file after includes
           
-          // SUSFS integration functions for KernelSU
-          // These are called from fs/susfs.c
+          # First, check if functions already exist
+          if grep -q "susfs_is_avc_log_spoofing_enabled" fs/susfs.c && \
+             grep -q "susfs_reorder_mnt_id" fs/susfs.c; then
+            echo "✅ Functions already exist in susfs.c"
+          else
+            echo "Adding missing function implementations..."
+            
+            # Create a temporary file with the function definitions
+            cat > /tmp/susfs_functions.c << 'FUNCS'
           
+          // Missing function implementations added by build script
           static bool avc_log_spoofing_enabled = false;
           
           bool susfs_is_avc_log_spoofing_enabled(void)
           {
               return avc_log_spoofing_enabled;
           }
-          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
           
           int susfs_reorder_mnt_id(struct vfsmount *mnt)
           {
-              // Stub implementation - just return success
               if (!mnt)
                   return -EINVAL;
               return 0;
           }
-          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
-          SUSFS_CODE
           
-          echo "✅ Created KernelSU/kernel/ksu_susfs.c"
-          cat KernelSU/kernel/ksu_susfs.c
-          echo ""
-          
-          # Check current KernelSU Makefile
-          echo "Current KernelSU Makefile:"
-          cat KernelSU/kernel/Makefile
-          echo ""
-          
-          # Modify KernelSU Makefile to include our stub
-          # We need to add it to the kernelsu object, not as separate obj-y
-          if ! grep -q "ksu_susfs.o" KernelSU/kernel/Makefile; then
-            # Find the line with kernelsu-objs and add ksu_susfs.o to it
-            if grep -q "kernelsu-objs" KernelSU/kernel/Makefile; then
-              sed -i '/kernelsu-objs.*+=/ s/$/ ksu_susfs.o/' KernelSU/kernel/Makefile
-              echo "✅ Added ksu_susfs.o to kernelsu-objs"
+          FUNCS
+            
+            # Find the last #include line and insert after it
+            LINE_NUM=$(grep -n "^#include" fs/susfs.c | tail -1 | cut -d: -f1)
+            if [ -z "$LINE_NUM" ]; then
+              # If no includes found, add at top
+              cat /tmp/susfs_functions.c fs/susfs.c > /tmp/susfs_new.c
             else
-              # If no kernelsu-objs, add as obj-y
-              echo "" >> KernelSU/kernel/Makefile
-              echo "# SUSFS integration" >> KernelSU/kernel/Makefile
-              echo "obj-\$(CONFIG_KSU) += ksu_susfs.o" >> KernelSU/kernel/Makefile
-              echo "✅ Added ksu_susfs.o to KernelSU Makefile"
+              # Insert after last include
+              head -n "$LINE_NUM" fs/susfs.c > /tmp/susfs_new.c
+              cat /tmp/susfs_functions.c >> /tmp/susfs_new.c
+              tail -n +$((LINE_NUM + 1)) fs/susfs.c >> /tmp/susfs_new.c
             fi
+            
+            mv /tmp/susfs_new.c fs/susfs.c
+            echo "✅ Added functions to fs/susfs.c"
           fi
           
+          # Verify
           echo ""
-          echo "Modified KernelSU Makefile:"
-          cat KernelSU/kernel/Makefile
+          echo "Checking for functions in susfs.c:"
+          grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -3
+          grep -n "susfs_reorder_mnt_id" fs/susfs.c | head -3
           echo ""
       
       - name: 🏗️ Build
