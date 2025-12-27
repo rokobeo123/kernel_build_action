@@ -82,47 +82,51 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           [ -d "KernelSU" ] || exit 1
       
-      - name: 📥 Clone SUSFS and copy ALL files
+      - name: 📥 Clone SUSFS and integrate
         working-directory: kernel
         run: |
           echo "📥 Cloning SUSFS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
-          echo ""
-          echo "📋 Analyzing structure..."
-          find susfs4ksu/kernel_patches/ -type f | head -30
-          
           cd susfs4ksu/kernel_patches
           
-          echo ""
-          echo "📁 Copying ALL files recursively..."
+          # Copy susfs.c to fs/
+          echo "Copying fs/susfs.c..."
+          cp -v fs/susfs.c ../../fs/
           
-          # Copy fs/ directory
-          if [ -d "fs" ]; then
-            cp -rv fs/* ../../fs/ || true
-          fi
-          
-          # Copy include/ directory
-          if [ -d "include" ]; then
-            mkdir -p ../../include
-            cp -rv include/* ../../include/ || true
-          fi
-          
-          # Copy KernelSU/ directory (CRITICAL!)
-          if [ -d "KernelSU" ]; then
-            echo "Copying KernelSU directory..."
-            cp -rv KernelSU/* ../../KernelSU/ || true
-          fi
+          # Copy headers
+          echo "Copying headers..."
+          mkdir -p ../../include/linux
+          cp -v include/linux/susfs_def.h ../../include/linux/
+          cp -v include/linux/susfs.h ../../include/linux/
           
           cd ../..
           
+          # ============================================
+          # CRITICAL: Add susfs.c to fs/Makefile
+          # ============================================
           echo ""
-          echo "✅ All SUSFS files copied!"
+          echo "🔧 Adding susfs.c to fs/Makefile..."
+          
+          if ! grep -q "susfs.o" fs/Makefile; then
+            echo "obj-\$(CONFIG_KSU_SUSFS) += susfs.o" >> fs/Makefile
+            echo "✅ Added susfs.o to fs/Makefile"
+          else
+            echo "✅ susfs.o already in fs/Makefile"
+          fi
+          
           echo ""
+          echo "✅ SUSFS integrated!"
+          
+          # Verification
+          echo ""
+          echo "═══════════════════════════════════"
           echo "Verification:"
-          echo "  fs/: $(ls fs/*susfs* 2>/dev/null | wc -l) files"
-          echo "  include/linux/: $(ls include/linux/susfs* 2>/dev/null | wc -l) files"
-          echo "  KernelSU/kernel/ susfs files: $(find KernelSU/kernel/ -name "*susfs*" 2>/dev/null | wc -l) files"
+          echo "═══════════════════════════════════"
+          ls -lh fs/susfs.c include/linux/susfs*.h
+          echo ""
+          echo "fs/Makefile contains:"
+          grep susfs fs/Makefile || echo "  Not found!"
       
       - name: ⚡ Create configs
         working-directory: kernel
@@ -261,11 +265,14 @@ jobs:
             2>&1 | tee ../build.log
           
           if [ -f arch/arm64/boot/Image.gz ]; then
-            echo "✅ BUILD SUCCESS!"
+            echo "╔═══════════════════════════════════╗"
+            echo "║    ✅ BUILD SUCCESS! ✅          ║"
+            echo "╚═══════════════════════════════════╝"
             ls -lh arch/arm64/boot/Image.gz
           else
-            echo "❌ FAILED!"
+            echo "❌ BUILD FAILED!"
             tail -300 ../build.log
+            grep "error:" ../build.log | tail -100
             exit 1
           fi
       
@@ -310,4 +317,5 @@ jobs:
       
       - name: 🎉 Done
         run: |
-          echo "✅ SUCCESS! 📦 ${{ env.ZIPNAME }}"
+          echo "✅ BUILD SUCCESS!"
+          echo "📦 ${{ env.ZIPNAME }}"
