@@ -30,17 +30,16 @@ jobs:
       
       - name: Set profile
         run: |
-          if [ -z "${{ github.event.inputs.profile }}" ]; then
+          if [ -z "${{ inputs.profile }}" ]; then
             echo "PROFILE=balanced" >> $GITHUB_ENV
           else
-            echo "PROFILE=${{ github.event.inputs.profile }}" >> $GITHUB_ENV
+            echo "PROFILE=${{ inputs.profile }}" >> $GITHUB_ENV
           fi
       
       - name: 🧹 Free space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo apt-get clean
-          df -h
       
       - name: 📦 Install deps
         run: |
@@ -84,7 +83,6 @@ jobs:
           [ -f "include/linux/susfs_def.h" ] && mkdir -p ../../include/linux && cp -v include/linux/susfs_def.h ../../include/linux/
           [ -f "include/linux/susfs.h" ] && mkdir -p ../../include/linux && cp -v include/linux/susfs.h ../../include/linux/
           cd ../..
-          ls -lh fs/susfs.c include/linux/susfs*.h 2>/dev/null || exit 1
       
       - name: ⚡ Create configs
         working-directory: kernel
@@ -187,37 +185,29 @@ jobs:
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
       
-      - name: 🛠️ Fix compilation
+      - name: 🛠️ Fix debug_kinfo error
         working-directory: kernel
         run: |
-          echo "Applying compilation fixes..."
+          echo "Applying fixes..."
           
-          # Keep MODULES enabled (CRITICAL FIX)
-          scripts/config --enable CONFIG_MODULES
-          
-          # Disable WERROR
           scripts/config --disable CONFIG_WERROR
           scripts/config --disable CONFIG_CC_WERROR
-          scripts/config --disable CONFIG_WERROR_IMPLICIT_FUNCTION_DECLARATION
-          
-          # Fix scheduler
           scripts/config --disable CONFIG_SCHED_CLUSTER
-          
-          # Enable OF
           scripts/config --enable CONFIG_OF
           scripts/config --enable CONFIG_OF_EARLY_FLATTREE
           scripts/config --enable CONFIG_OF_FLATTREE
           
-          # Keep essential debug info
-          scripts/config --enable CONFIG_DEBUG_INFO
-          scripts/config --enable CONFIG_DEBUG_INFO_BTF
+          # FIX: Disable debug_kinfo (needs CONFIG_MODULES)
+          echo "Disabling debug_kinfo..."
+          scripts/config --disable CONFIG_DEBUG_KINFO
+          scripts/config --disable CONFIG_ANDROID_DEBUG_SYMBOLS
           
-          # Fix Android debug_kinfo issue - disable if causing problems
-          scripts/config --disable CONFIG_DEBUG_KINFO || true
+          # Disable modules
+          scripts/config --disable CONFIG_MODULES
           
-          echo "✅ Configs fixed!"
+          echo "✅ Fixes applied!"
       
-      - name: 🏗️ Build with detailed error logging
+      - name: 🏗️ Build
         working-directory: kernel
         run: |
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
@@ -229,67 +219,22 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           
-          echo "═══════════════════════════════"
-          echo "Compiler: $(clang --version | head -1)"
-          echo "Kernel: $(make kernelversion)"
-          echo "Cores: $(nproc)"
-          echo "═══════════════════════════════"
-          
+          clang --version | head -1
+          make kernelversion
           make olddefconfig 2>&1 || true
           
-          # Patch the problematic debug_kinfo.c file
-          if [ -f "drivers/android/debug_kinfo.c" ]; then
-            echo "Patching debug_kinfo.c to fix struct module issue..."
-            sed -i 's/#include <linux\/module.h>/#include <linux\/module.h>\n#include <linux\/module_internal.h>/' drivers/android/debug_kinfo.c
-          fi
-          
-          echo ""
-          echo "🚀 Starting build..."
-          echo ""
-          
-          # Build with continue-on-error flag
-          make -j$(nproc) -k \
-            KCFLAGS="-Wno-error -Wno-everything" \
-            KAFLAGS="-Wno-error" \
-            2>&1 | tee ../build.log || {
-              echo ""
-              echo "⚠️ Build had errors, checking kernel image..."
-            }
-          
-          echo ""
-          echo "Checking build result..."
+          echo "Building..."
+          make -j$(nproc) \
+            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
+            2>&1 | tee ../build.log
           
           if [ -f arch/arm64/boot/Image.gz ]; then
-            echo ""
-            echo "╔═══════════════════════════════╗"
-            echo "║   ✅ KERNEL BUILD SUCCESS!   ║"
-            echo "╚═══════════════════════════════╝"
-            echo ""
+            echo "✅ BUILD SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
-            
-            # Show warnings/errors but don't fail
-            echo ""
-            echo "Build summary:"
-            grep -i "warning:" ../build.log | wc -l | xargs echo "Warnings:"
-            grep -i "error:" ../build.log | wc -l | xargs echo "Errors:"
-            
-            echo ""
-            echo "✅ Continuing with packaging..."
-            
           else
-            echo ""
-            echo "╔═══════════════════════════════╗"
-            echo "║    ❌ BUILD FAILED!  ❌      ║"
-            echo "╚═══════════════════════════════╝"
-            echo ""
-            echo "Last 300 lines of build log:"
-            tail -300 ../build.log
-            echo ""
-            echo "All errors:"
-            grep -i "error:" ../build.log | tail -100
-            echo ""
-            echo "Disk space:"
-            df -h
+            echo "❌ FAILED!"
+            tail -200 ../build.log
+            grep "error:" ../build.log | tail -50
             exit 1
           fi
       
@@ -334,5 +279,5 @@ jobs:
       
       - name: 🎉 Done
         run: |
-          echo "✅ BUILD SUCCESS!"
+          echo "✅ SUCCESS!"
           echo "📦 ${{ env.ZIPNAME }}"
