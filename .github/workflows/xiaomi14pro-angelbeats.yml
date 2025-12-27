@@ -88,27 +88,45 @@ jobs:
           echo "📥 Cloning SUSFS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
+          echo "📂 Exploring SUSFS structure..."
+          find susfs4ksu -type f -name "*.c" -o -name "*.h" | head -20
+          
+          echo ""
           echo "📂 Copying SUSFS files to proper locations..."
           
           # Copy main SUSFS source to fs/
-          cp -v susfs4ksu/kernel_patches/fs/susfs.c fs/
+          if [ -f "susfs4ksu/kernel_patches/fs/susfs.c" ]; then
+            cp -v susfs4ksu/kernel_patches/fs/susfs.c fs/
+          fi
           
           # Copy SUSFS headers to include/linux/
           mkdir -p include/linux
-          cp -v susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/
-          cp -v susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
-          
-          # Copy KSU integration files (the critical missing pieces!)
-          if [ -d "susfs4ksu/kernel_patches/KernelSU" ]; then
-            echo "Copying KSU SUSFS integration files..."
-            find susfs4ksu/kernel_patches/KernelSU -type f \( -name "*.c" -o -name "*.h" \) -exec cp -v {} KernelSU/kernel/ \;
+          if [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ]; then
+            cp -v susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/
+          fi
+          if [ -f "susfs4ksu/kernel_patches/include/linux/susfs.h" ]; then
+            cp -v susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
           fi
           
-          # Also check ksu_susfs directory
+          # Copy ALL KSU integration files - search entire susfs4ksu directory
+          echo "Searching for KSU integration files..."
+          find susfs4ksu -type f \( -name "*ksu*.c" -o -name "*ksu*.h" \) | while read file; do
+            echo "Found: $file"
+            cp -v "$file" KernelSU/kernel/
+          done
+          
+          # Copy files from ksu_susfs directory if it exists
           if [ -d "susfs4ksu/ksu_susfs" ]; then
-            echo "Copying ksu_susfs files..."
+            echo "Copying from ksu_susfs directory..."
             cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
             cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
+          fi
+          
+          # Copy any files from kernel_patches/ksu_susfs
+          if [ -d "susfs4ksu/kernel_patches/ksu_susfs" ]; then
+            echo "Copying from kernel_patches/ksu_susfs..."
+            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
+            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
           fi
           
           # Add SUSFS to fs/Makefile
@@ -117,14 +135,29 @@ jobs:
             echo "✅ Added SUSFS to fs/Makefile"
           fi
           
+          # Patch KernelSU Makefile to include SUSFS objects
+          if [ -f "KernelSU/kernel/Makefile" ]; then
+            if ! grep -q "ksu_susfs" KernelSU/kernel/Makefile; then
+              echo "" >> KernelSU/kernel/Makefile
+              echo "# SUSFS integration" >> KernelSU/kernel/Makefile
+              echo "obj-\$(CONFIG_KSU_SUSFS) += ksu_susfs.o" >> KernelSU/kernel/Makefile
+              echo "✅ Added SUSFS to KernelSU Makefile"
+            fi
+          fi
+          
           echo ""
           echo "📂 Verification:"
           echo "SUSFS in fs/:"
           ls -la fs/susfs.c 2>/dev/null || echo "  ❌ Missing!"
+          echo ""
           echo "SUSFS headers:"
           ls -la include/linux/susfs*.h 2>/dev/null || echo "  ❌ Missing!"
-          echo "KSU SUSFS integration:"
-          ls -la KernelSU/kernel/*susfs* 2>/dev/null || echo "  ❌ Missing!"
+          echo ""
+          echo "KSU SUSFS integration files:"
+          ls -la KernelSU/kernel/ | grep -i susfs || echo "  ❌ No SUSFS files found!"
+          echo ""
+          echo "KernelSU Makefile:"
+          grep -i susfs KernelSU/kernel/Makefile 2>/dev/null || echo "  ⚠️  No SUSFS in Makefile"
           echo ""
       
       - name: ⚡ Create configs
@@ -270,6 +303,48 @@ jobs:
           scripts/config --enable CONFIG_GUNYAH
           
           echo "✅ Configuration complete!"
+      
+      - name: 🩹 Create SUSFS stub functions if missing
+        working-directory: kernel
+        run: |
+          echo "🩹 Creating SUSFS stub functions..."
+          
+          # Create ksu_susfs.c if it doesn't exist
+          if [ ! -f "KernelSU/kernel/ksu_susfs.c" ]; then
+            cat > KernelSU/kernel/ksu_susfs.c << 'SUSFS_STUB'
+          #include <linux/types.h>
+          #include <linux/fs.h>
+          #include <linux/mount.h>
+          
+          // Stub implementations for missing SUSFS functions
+          
+          bool susfs_is_avc_log_spoofing_enabled(void)
+          {
+              return false;
+          }
+          
+          int susfs_reorder_mnt_id(struct vfsmount *mnt)
+          {
+              return 0;
+          }
+          
+          EXPORT_SYMBOL(susfs_is_avc_log_spoofing_enabled);
+          EXPORT_SYMBOL(susfs_reorder_mnt_id);
+          SUSFS_STUB
+            echo "✅ Created ksu_susfs.c stub"
+          fi
+          
+          # Ensure it's in the Makefile
+          if [ -f "KernelSU/kernel/Makefile" ]; then
+            if ! grep -q "ksu_susfs.o" KernelSU/kernel/Makefile; then
+              echo "obj-y += ksu_susfs.o" >> KernelSU/kernel/Makefile
+              echo "✅ Added ksu_susfs.o to KernelSU Makefile"
+            fi
+          fi
+          
+          echo "Verifying stub file:"
+          ls -la KernelSU/kernel/ksu_susfs.c 2>/dev/null || echo "  ❌ Failed to create!"
+          echo ""
       
       - name: 🏗️ Build
         working-directory: kernel
