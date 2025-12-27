@@ -68,6 +68,21 @@ jobs:
             sed -i '/source "drivers\/misc\/hwid\/Kconfig"/d' drivers/misc/Kconfig
           fi
       
+      - name: 🔧 Remove debug_kinfo.c (causes error without CONFIG_MODULES)
+        working-directory: kernel
+        run: |
+          echo "Removing problematic debug_kinfo.c..."
+          
+          # Remove the file completely
+          rm -f drivers/android/debug_kinfo.c
+          
+          # Remove from Makefile
+          if [ -f "drivers/android/Makefile" ]; then
+            sed -i '/debug_kinfo/d' drivers/android/Makefile
+          fi
+          
+          echo "✅ debug_kinfo removed!"
+      
       - name: 🔧 Integrate SukiSU
         working-directory: kernel
         run: |
@@ -185,27 +200,17 @@ jobs:
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
       
-      - name: 🛠️ Fix debug_kinfo error
+      - name: 🛠️ Fix compilation
         working-directory: kernel
         run: |
-          echo "Applying fixes..."
-          
           scripts/config --disable CONFIG_WERROR
           scripts/config --disable CONFIG_CC_WERROR
           scripts/config --disable CONFIG_SCHED_CLUSTER
           scripts/config --enable CONFIG_OF
           scripts/config --enable CONFIG_OF_EARLY_FLATTREE
           scripts/config --enable CONFIG_OF_FLATTREE
-          
-          # FIX: Disable debug_kinfo (needs CONFIG_MODULES)
-          echo "Disabling debug_kinfo..."
-          scripts/config --disable CONFIG_DEBUG_KINFO
-          scripts/config --disable CONFIG_ANDROID_DEBUG_SYMBOLS
-          
-          # Disable modules
           scripts/config --disable CONFIG_MODULES
-          
-          echo "✅ Fixes applied!"
+          scripts/config --disable CONFIG_DEBUG_KINFO
       
       - name: 🏗️ Build
         working-directory: kernel
@@ -229,10 +234,12 @@ jobs:
             2>&1 | tee ../build.log
           
           if [ -f arch/arm64/boot/Image.gz ]; then
-            echo "✅ BUILD SUCCESS!"
+            echo "╔═══════════════════════════════╗"
+            echo "║   ✅ BUILD SUCCESS! ✅       ║"
+            echo "╚═══════════════════════════════╝"
             ls -lh arch/arm64/boot/Image.gz
           else
-            echo "❌ FAILED!"
+            echo "❌ BUILD FAILED!"
             tail -200 ../build.log
             grep "error:" ../build.log | tail -50
             exit 1
@@ -268,6 +275,19 @@ jobs:
           zip -r9 "../${ZIPNAME}" * -x .git README.md *placeholder
           cd ..
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
+          
+          cat > KERNEL_INFO.txt << 'INFO'
+          🔋 AngelBeats-Style Kernel
+          📱 Xiaomi 14 Pro
+          
+          ✅ SukiSU Ultra + SUSFS v2.0.0
+          ✅ KPM + KProbes + BBG
+          ✅ Battery optimization
+          ✅ BFQ I/O + Schedutil
+          
+          📥 Flash via TWRP
+          🔋 Enjoy!
+          INFO
       
       - name: 📤 Upload
         uses: actions/upload-artifact@v4
@@ -275,9 +295,10 @@ jobs:
           name: Kernel-${{ env.PROFILE }}
           path: |
             *.zip
+            *.txt
             build.log
       
       - name: 🎉 Done
         run: |
-          echo "✅ SUCCESS!"
+          echo "✅ BUILD SUCCESS!"
           echo "📦 ${{ env.ZIPNAME }}"
