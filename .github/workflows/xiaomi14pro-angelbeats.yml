@@ -309,14 +309,18 @@ jobs:
         run: |
           echo "🩹 Creating SUSFS stub functions..."
           
-          # Create ksu_susfs.c if it doesn't exist
-          if [ ! -f "KernelSU/kernel/ksu_susfs.c" ]; then
-            cat > KernelSU/kernel/ksu_susfs.c << 'SUSFS_STUB'
+          # Check what SUSFS files we have
+          echo "Current SUSFS files in KernelSU/kernel/:"
+          ls -la KernelSU/kernel/ | grep -i susfs || echo "  None found"
+          echo ""
+          
+          # Always create ksu_susfs.c with required functions
+          cat > KernelSU/kernel/ksu_susfs.c << 'SUSFS_STUB'
           #include <linux/types.h>
           #include <linux/fs.h>
           #include <linux/mount.h>
           
-          // Stub implementations for missing SUSFS functions
+          // SUSFS integration functions for KernelSU
           
           bool susfs_is_avc_log_spoofing_enabled(void)
           {
@@ -331,19 +335,36 @@ jobs:
           EXPORT_SYMBOL(susfs_is_avc_log_spoofing_enabled);
           EXPORT_SYMBOL(susfs_reorder_mnt_id);
           SUSFS_STUB
-            echo "✅ Created ksu_susfs.c stub"
-          fi
           
-          # Ensure it's in the Makefile
-          if [ -f "KernelSU/kernel/Makefile" ]; then
-            if ! grep -q "ksu_susfs.o" KernelSU/kernel/Makefile; then
-              echo "obj-y += ksu_susfs.o" >> KernelSU/kernel/Makefile
-              echo "✅ Added ksu_susfs.o to KernelSU Makefile"
-            fi
-          fi
+          echo "✅ Created KernelSU/kernel/ksu_susfs.c"
           
-          echo "Verifying stub file:"
-          ls -la KernelSU/kernel/ksu_susfs.c 2>/dev/null || echo "  ❌ Failed to create!"
+          # Check current KernelSU Makefile
+          echo ""
+          echo "Current KernelSU Makefile:"
+          cat KernelSU/kernel/Makefile
+          echo ""
+          
+          # Backup and modify KernelSU Makefile
+          cp KernelSU/kernel/Makefile KernelSU/kernel/Makefile.bak
+          
+          # Remove any existing susfs lines
+          sed -i '/ksu_susfs/d' KernelSU/kernel/Makefile
+          
+          # Add our stub at the end, always compiled
+          echo "" >> KernelSU/kernel/Makefile
+          echo "# SUSFS integration - always compile" >> KernelSU/kernel/Makefile
+          echo "obj-y += ksu_susfs.o" >> KernelSU/kernel/Makefile
+          
+          echo "✅ Modified KernelSU Makefile"
+          echo ""
+          echo "New KernelSU Makefile:"
+          cat KernelSU/kernel/Makefile
+          echo ""
+          
+          # Verify files
+          echo "Verification:"
+          ls -la KernelSU/kernel/ksu_susfs.c || echo "  ❌ ksu_susfs.c missing!"
+          grep "ksu_susfs" KernelSU/kernel/Makefile || echo "  ❌ Not in Makefile!"
           echo ""
       
       - name: 🏗️ Build
@@ -362,21 +383,37 @@ jobs:
           make kernelversion
           make olddefconfig 2>&1 || true
           
+          echo ""
+          echo "🔍 Checking if ksu_susfs will be compiled..."
+          grep -r "ksu_susfs" KernelSU/kernel/Makefile || echo "⚠️  ksu_susfs NOT in Makefile!"
+          
+          echo ""
+          echo "🚀 Building kernel..."
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-int-conversion -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
           
+          # Check if ksu_susfs was built
+          echo ""
+          echo "🔍 Checking if ksu_susfs.o was created..."
+          find . -name "ksu_susfs.o" -exec ls -lh {} \; || echo "⚠️  ksu_susfs.o NOT built!"
+          
           if [ -f arch/arm64/boot/Image.gz ]; then
+            echo ""
             echo "✅ BUILD SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
           else
+            echo ""
             echo "❌ BUILD FAILED!"
             echo ""
             echo "Last 200 lines of build log:"
             tail -200 ../build.log
             echo ""
-            echo "All errors:"
-            grep -i "error:" ../build.log | tail -50
+            echo "All linker errors:"
+            grep "ld.lld: error:" ../build.log || grep "error:" ../build.log | tail -50
+            echo ""
+            echo "Checking for susfs references:"
+            grep -i "susfs" ../build.log | tail -20
             exit 1
           fi
       
