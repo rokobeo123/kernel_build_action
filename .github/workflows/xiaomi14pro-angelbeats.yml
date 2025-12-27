@@ -68,7 +68,7 @@ jobs:
             sed -i '/source "drivers\/misc\/hwid\/Kconfig"/d' drivers/misc/Kconfig
           fi
       
-      - name: 🔧 Remove debug_kinfo.c
+      - name: 🔧 Remove debug_kinfo
         working-directory: kernel
         run: |
           rm -f drivers/android/debug_kinfo.c
@@ -82,15 +82,47 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           [ -d "KernelSU" ] || exit 1
       
-      - name: 📥 Clone SUSFS
+      - name: 📥 Clone SUSFS and copy ALL files
         working-directory: kernel
         run: |
+          echo "📥 Cloning SUSFS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
+          
+          echo ""
+          echo "📋 Analyzing structure..."
+          find susfs4ksu/kernel_patches/ -type f | head -30
+          
           cd susfs4ksu/kernel_patches
-          [ -f "fs/susfs.c" ] && cp -v fs/susfs.c ../../fs/
-          [ -f "include/linux/susfs_def.h" ] && mkdir -p ../../include/linux && cp -v include/linux/susfs_def.h ../../include/linux/
-          [ -f "include/linux/susfs.h" ] && mkdir -p ../../include/linux && cp -v include/linux/susfs.h ../../include/linux/
+          
+          echo ""
+          echo "📁 Copying ALL files recursively..."
+          
+          # Copy fs/ directory
+          if [ -d "fs" ]; then
+            cp -rv fs/* ../../fs/ || true
+          fi
+          
+          # Copy include/ directory
+          if [ -d "include" ]; then
+            mkdir -p ../../include
+            cp -rv include/* ../../include/ || true
+          fi
+          
+          # Copy KernelSU/ directory (CRITICAL!)
+          if [ -d "KernelSU" ]; then
+            echo "Copying KernelSU directory..."
+            cp -rv KernelSU/* ../../KernelSU/ || true
+          fi
+          
           cd ../..
+          
+          echo ""
+          echo "✅ All SUSFS files copied!"
+          echo ""
+          echo "Verification:"
+          echo "  fs/: $(ls fs/*susfs* 2>/dev/null | wc -l) files"
+          echo "  include/linux/: $(ls include/linux/susfs* 2>/dev/null | wc -l) files"
+          echo "  KernelSU/kernel/ susfs files: $(find KernelSU/kernel/ -name "*susfs*" 2>/dev/null | wc -l) files"
       
       - name: ⚡ Create configs
         working-directory: kernel
@@ -193,11 +225,9 @@ jobs:
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
       
-      - name: 🛠️ Fix ALL compilation issues
+      - name: 🛠️ Fix compilation
         working-directory: kernel
         run: |
-          echo "Applying all fixes..."
-          
           scripts/config --disable CONFIG_WERROR
           scripts/config --disable CONFIG_CC_WERROR
           scripts/config --disable CONFIG_SCHED_CLUSTER
@@ -206,16 +236,10 @@ jobs:
           scripts/config --enable CONFIG_OF_FLATTREE
           scripts/config --disable CONFIG_MODULES
           scripts/config --disable CONFIG_DEBUG_KINFO
-          
-          # FIX BTF
           scripts/config --disable CONFIG_DEBUG_INFO_BTF
           scripts/config --disable CONFIG_DEBUG_INFO
-          scripts/config --disable CONFIG_DEBUG_INFO_DWARF4
-          scripts/config --disable CONFIG_DEBUG_INFO_DWARF5
-          
-          echo "✅ All fixes applied!"
       
-      - name: 🏗️ Build kernel
+      - name: 🏗️ Build
         working-directory: kernel
         run: |
           export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
@@ -227,38 +251,25 @@ jobs:
           export LLVM=1
           export LLVM_IAS=1
           
-          echo "Compiler: $(clang --version | head -1)"
-          echo "Kernel: $(make kernelversion)"
-          echo "Cores: $(nproc)"
-          
+          clang --version | head -1
+          make kernelversion
           make olddefconfig 2>&1 || true
           
-          echo ""
-          echo "🚀 Building..."
-          echo ""
-          
+          echo "Building..."
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
           
           if [ -f arch/arm64/boot/Image.gz ]; then
-            echo ""
-            echo "╔═══════════════════════════════════╗"
-            echo "║                                   ║"
-            echo "║    ✅ BUILD SUCCESSFUL! ✅       ║"
-            echo "║                                   ║"
-            echo "╚═══════════════════════════════════╝"
-            echo ""
+            echo "✅ BUILD SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
           else
-            echo ""
-            echo "❌ BUILD FAILED!"
-            tail -200 ../build.log
-            grep "error:" ../build.log | tail -50
+            echo "❌ FAILED!"
+            tail -300 ../build.log
             exit 1
           fi
       
-      - name: 📦 Package AnyKernel3
+      - name: 📦 Package
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3
           cd AnyKernel3
@@ -266,14 +277,13 @@ jobs:
           
           cat > anykernel.sh << 'AK'
           properties() { '
-          kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
+          kernel.string=AngelBeats-SukiSU-Xiaomi14Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
           do.cleanup=1
           device.name1=shennong
           device.name2=Xiaomi 14 Pro
-          device.name3=2311DRN47C
           supported.versions=14-15
           '; }
           block=/dev/block/by-name/boot;
@@ -285,57 +295,19 @@ jobs:
           AK
           
           DATE=$(date +%Y%m%d-%H%M)
-          ZIPNAME="AngelBeats-SukiSU-SUSFS-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
+          ZIPNAME="AngelBeats-SukiSU-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
           zip -r9 "../${ZIPNAME}" * -x .git README.md *placeholder
           cd ..
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
-          
-          cat > KERNEL_INFO.txt << 'INFO'
-          ╔════════════════════════════════════════╗
-          ║  🔋 AngelBeats-Style Kernel          ║
-          ║  📱 Xiaomi 14 Pro (shennong)         ║
-          ╚════════════════════════════════════════╝
-          
-          ✅ Features:
-            • SukiSU Ultra (root)
-            • SUSFS v2.0.0 (root hiding)
-            • KPM + KProbes support
-            • BBG (Baseband Guard)
-            • AngelBeats battery optimization
-            • BFQ I/O Scheduler
-            • Schedutil CPU Governor
-          
-          📥 Installation:
-            1. Backup boot.img
-            2. Flash via TWRP
-            3. Reboot
-            4. Install KernelSU Manager
-          
-          🔋 Enjoy better battery life!
-          INFO
       
-      - name: 📤 Upload artifacts
+      - name: 📤 Upload
         uses: actions/upload-artifact@v4
         with:
-          name: Xiaomi-14-Pro-Kernel-${{ env.PROFILE }}
+          name: Kernel-${{ env.PROFILE }}
           path: |
             *.zip
-            *.txt
             build.log
-          retention-days: 30
       
-      - name: 🎉 BUILD COMPLETE!
+      - name: 🎉 Done
         run: |
-          echo ""
-          echo "╔═══════════════════════════════════════╗"
-          echo "║                                       ║"
-          echo "║      ✅ BUILD SUCCESSFUL! ✅         ║"
-          echo "║                                       ║"
-          echo "╚═══════════════════════════════════════╝"
-          echo ""
-          echo "📦 Kernel: ${{ env.ZIPNAME }}"
-          echo "⚡ Profile: ${{ env.PROFILE }}"
-          echo ""
-          echo "📥 Download from Artifacts section!"
-          echo "⚡ Flash via TWRP and enjoy!"
-          echo ""
+          echo "✅ SUCCESS! 📦 ${{ env.ZIPNAME }}"
