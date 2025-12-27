@@ -307,64 +307,69 @@ jobs:
       - name: 🩹 Create SUSFS stub functions if missing
         working-directory: kernel
         run: |
-          echo "🩹 Creating SUSFS stub functions..."
+          echo "🩹 Creating SUSFS integration functions..."
           
           # Check what SUSFS files we have
           echo "Current SUSFS files in KernelSU/kernel/:"
           ls -la KernelSU/kernel/ | grep -i susfs || echo "  None found"
           echo ""
           
-          # Always create ksu_susfs.c with required functions
-          cat > KernelSU/kernel/ksu_susfs.c << 'SUSFS_STUB'
+          # Create ksu_susfs.c with required functions
+          cat > KernelSU/kernel/ksu_susfs.c << 'SUSFS_CODE'
           #include <linux/types.h>
           #include <linux/fs.h>
           #include <linux/mount.h>
+          #include <linux/kernel.h>
           
           // SUSFS integration functions for KernelSU
+          // These are called from fs/susfs.c
+          
+          static bool avc_log_spoofing_enabled = false;
           
           bool susfs_is_avc_log_spoofing_enabled(void)
           {
-              return false;
+              return avc_log_spoofing_enabled;
           }
+          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
           
           int susfs_reorder_mnt_id(struct vfsmount *mnt)
           {
+              // Stub implementation - just return success
+              if (!mnt)
+                  return -EINVAL;
               return 0;
           }
-          
-          EXPORT_SYMBOL(susfs_is_avc_log_spoofing_enabled);
-          EXPORT_SYMBOL(susfs_reorder_mnt_id);
-          SUSFS_STUB
+          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
+          SUSFS_CODE
           
           echo "✅ Created KernelSU/kernel/ksu_susfs.c"
+          cat KernelSU/kernel/ksu_susfs.c
+          echo ""
           
           # Check current KernelSU Makefile
-          echo ""
           echo "Current KernelSU Makefile:"
           cat KernelSU/kernel/Makefile
           echo ""
           
-          # Backup and modify KernelSU Makefile
-          cp KernelSU/kernel/Makefile KernelSU/kernel/Makefile.bak
+          # Modify KernelSU Makefile to include our stub
+          # We need to add it to the kernelsu object, not as separate obj-y
+          if ! grep -q "ksu_susfs.o" KernelSU/kernel/Makefile; then
+            # Find the line with kernelsu-objs and add ksu_susfs.o to it
+            if grep -q "kernelsu-objs" KernelSU/kernel/Makefile; then
+              sed -i '/kernelsu-objs.*+=/ s/$/ ksu_susfs.o/' KernelSU/kernel/Makefile
+              echo "✅ Added ksu_susfs.o to kernelsu-objs"
+            else
+              # If no kernelsu-objs, add as obj-y
+              echo "" >> KernelSU/kernel/Makefile
+              echo "# SUSFS integration" >> KernelSU/kernel/Makefile
+              echo "obj-\$(CONFIG_KSU) += ksu_susfs.o" >> KernelSU/kernel/Makefile
+              echo "✅ Added ksu_susfs.o to KernelSU Makefile"
+            fi
+          fi
           
-          # Remove any existing susfs lines
-          sed -i '/ksu_susfs/d' KernelSU/kernel/Makefile
-          
-          # Add our stub at the end, always compiled
-          echo "" >> KernelSU/kernel/Makefile
-          echo "# SUSFS integration - always compile" >> KernelSU/kernel/Makefile
-          echo "obj-y += ksu_susfs.o" >> KernelSU/kernel/Makefile
-          
-          echo "✅ Modified KernelSU Makefile"
           echo ""
-          echo "New KernelSU Makefile:"
+          echo "Modified KernelSU Makefile:"
           cat KernelSU/kernel/Makefile
-          echo ""
-          
-          # Verify files
-          echo "Verification:"
-          ls -la KernelSU/kernel/ksu_susfs.c || echo "  ❌ ksu_susfs.c missing!"
-          grep "ksu_susfs" KernelSU/kernel/Makefile || echo "  ❌ Not in Makefile!"
           echo ""
       
       - name: 🏗️ Build
