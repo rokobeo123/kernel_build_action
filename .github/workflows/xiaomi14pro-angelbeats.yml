@@ -133,6 +133,7 @@ jobs:
           CONFIG_ZRAM=y
           CONFIG_LZ4_COMPRESS=y
           CONFIG_WIREGUARD=y
+          CONFIG_TMPFS_XATTR=y
           END
           
           cat > arch/arm64/configs/vendor/angelbeats_balanced.config << 'END'
@@ -161,6 +162,7 @@ jobs:
           CONFIG_ZRAM=y
           CONFIG_LZ4_COMPRESS=y
           CONFIG_WIREGUARD=y
+          CONFIG_TMPFS_XATTR=y
           END
           
           cat > arch/arm64/configs/vendor/angelbeats_performance.config << 'END'
@@ -187,6 +189,7 @@ jobs:
           CONFIG_ZRAM=y
           CONFIG_LZ4_COMPRESS=y
           CONFIG_WIREGUARD=y
+          CONFIG_TMPFS_XATTR=y
           END
       
       - name: 🔨 Clone Clang
@@ -217,6 +220,7 @@ jobs:
           scripts/config --disable CONFIG_DEBUG_KINFO
           scripts/config --disable CONFIG_DEBUG_INFO_BTF
           scripts/config --disable CONFIG_DEBUG_INFO
+          scripts/config --enable CONFIG_TMPFS_XATTR
           
           # Keep pkvm and gunyah enabled (they need CONFIG_MODULES)
           scripts/config --enable CONFIG_PKVM
@@ -242,59 +246,62 @@ jobs:
         run: |
           echo "Patching SUSFS missing functions..."
           
-          # Check what's in susfs.c and susfs.h
           echo "=== Checking existing SUSFS code ==="
-          
           if [ -f "fs/susfs.c" ]; then
-            echo "Searching for functions in susfs.c..."
-            grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c || echo "Not found in susfs.c"
+            echo "Functions in susfs.c:"
+            grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c || echo "Not found"
           fi
           
           if [ -f "include/linux/susfs.h" ]; then
-            echo "Searching for declarations in susfs.h..."
-            grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" include/linux/susfs.h || echo "Not found in susfs.h"
+            echo "Declarations in susfs.h:"
+            grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" include/linux/susfs.h || echo "Not found"
           fi
           
-          # The functions exist but might not be exported properly
-          # Let's check if EXPORT_SYMBOL is missing
           echo "=== Checking for EXPORT_SYMBOL ==="
-          grep -A1 "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c | grep EXPORT || echo "EXPORT_SYMBOL missing"
+          grep -A1 "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c 2>/dev/null | grep EXPORT || echo "EXPORT_SYMBOL missing"
           
-          # Add EXPORT_SYMBOL_GPL after the existing functions if missing
-          if ! grep -q "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
-            echo "Adding EXPORT_SYMBOL_GPL for susfs_is_avc_log_spoofing_enabled..."
-            sed -i '/^bool susfs_is_avc_log_spoofing_enabled/,/^}/ {
-              /^}/a\
-EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
-            }' fs/susfs.c
+          # Create a script to add EXPORT_SYMBOL after function definitions
+          cat > /tmp/add_export.sh << 'SCRIPT'
+          #!/bin/bash
+          FILE="fs/susfs.c"
+          
+          # Check if EXPORT is missing for susfs_is_avc_log_spoofing_enabled
+          if grep -q "susfs_is_avc_log_spoofing_enabled" "$FILE"; then
+            if ! grep -q "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" "$FILE"; then
+              echo "Adding EXPORT for susfs_is_avc_log_spoofing_enabled..."
+              awk '/^bool susfs_is_avc_log_spoofing_enabled/,/^}/ {print; if (/^}/) print "EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);"; next} 1' "$FILE" > "$FILE.tmp"
+              mv "$FILE.tmp" "$FILE"
+            fi
           fi
           
-          # Check if susfs_reorder_mnt_id exists, if not add it
-          if ! grep -q "susfs_reorder_mnt_id" fs/susfs.c; then
+          # Check if susfs_reorder_mnt_id exists
+          if ! grep -q "susfs_reorder_mnt_id" "$FILE"; then
             echo "Adding susfs_reorder_mnt_id function..."
-            cat >> fs/susfs.c << 'SUSFS_REORDER'
+            cat >> "$FILE" << 'FUNCEND'
           
           void susfs_reorder_mnt_id(void) {
-              // No-op implementation
+              return;
           }
           EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
-          SUSFS_REORDER
+          FUNCEND
           fi
+          SCRIPT
+          
+          chmod +x /tmp/add_export.sh
+          /tmp/add_export.sh
           
           # Add declaration to header if missing
           if [ -f "include/linux/susfs.h" ]; then
             if ! grep -q "susfs_reorder_mnt_id" include/linux/susfs.h; then
-              echo "Adding susfs_reorder_mnt_id declaration to header..."
-              sed -i '/^#endif/i\
-void susfs_reorder_mnt_id(void);' include/linux/susfs.h
+              echo "Adding susfs_reorder_mnt_id declaration..."
+              awk '/^#endif.*SUSFS/ {print "void susfs_reorder_mnt_id(void);\n" $0; next} 1' include/linux/susfs.h > include/linux/susfs.h.tmp
+              mv include/linux/susfs.h.tmp include/linux/susfs.h
             fi
           fi
           
           echo "=== Final verification ==="
-          echo "Functions in susfs.c:"
           grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c || true
-          echo "EXPORT symbols:"
-          grep "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled\|EXPORT_SYMBOL.*susfs_reorder_mnt_id" fs/susfs.c || true
+          grep "EXPORT_SYMBOL.*susfs" fs/susfs.c || true
           
           echo "✅ SUSFS patches applied!"
       
@@ -302,21 +309,22 @@ void susfs_reorder_mnt_id(void);' include/linux/susfs.h
         working-directory: kernel
         run: |
           if [ -f "arch/arm64/kvm/pkvm.c" ]; then
-            echo "Patching PKVM..."
+            echo "Checking PKVM..."
             
-            # Add stub for pkvm_load_early_modules if it's missing
             if ! grep -q "pkvm_load_early_modules" arch/arm64/kvm/pkvm.c; then
+              echo "Adding pkvm_load_early_modules stub..."
               cat >> arch/arm64/kvm/pkvm.c << 'PKVM_PATCH'
           
           #ifdef CONFIG_MODULES
           int pkvm_load_early_modules(void) {
-              return 0;  // Stub implementation
+              return 0;
           }
           #endif
           PKVM_PATCH
+              echo "✅ PKVM stub added!"
+            else
+              echo "✅ PKVM already has the function"
             fi
-            
-            echo "✅ PKVM patches applied!"
           fi
       
       - name: 🏗️ Build
