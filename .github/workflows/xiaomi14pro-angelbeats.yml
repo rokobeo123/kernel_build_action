@@ -213,15 +213,14 @@ jobs:
           scripts/config --enable CONFIG_OF
           scripts/config --enable CONFIG_OF_EARLY_FLATTREE
           scripts/config --enable CONFIG_OF_FLATTREE
-          scripts/config --disable CONFIG_MODULES
+          scripts/config --enable CONFIG_MODULES
           scripts/config --disable CONFIG_DEBUG_KINFO
           scripts/config --disable CONFIG_DEBUG_INFO_BTF
           scripts/config --disable CONFIG_DEBUG_INFO
           
-          # Fix pkvm and gunyah errors (need CONFIG_MODULES)
-          scripts/config --disable CONFIG_PKVM
-          scripts/config --disable CONFIG_GUNYAH
-          scripts/config --disable CONFIG_GUNYAH_QCOM_PLATFORM
+          # Keep pkvm and gunyah enabled (they need CONFIG_MODULES)
+          scripts/config --enable CONFIG_PKVM
+          scripts/config --enable CONFIG_GUNYAH
           
           # Enable all SUSFS sub-features
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_SU
@@ -231,6 +230,54 @@ jobs:
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_KLOG
           
           echo "✅ All fixes applied!"
+      
+      - name: 🔧 Patch SUSFS missing functions
+        working-directory: kernel
+        run: |
+          echo "Patching SUSFS missing functions..."
+          
+          # Add missing SUSFS functions to susfs.c
+          cat >> fs/susfs.c << 'SUSFS_PATCH'
+          
+          // Added missing functions
+          #ifdef CONFIG_KSU_SUSFS_SUS_KLOG
+          bool susfs_is_avc_log_spoofing_enabled(void) {
+              return false;  // Default implementation
+          }
+          EXPORT_SYMBOL(susfs_is_avc_log_spoofing_enabled);
+          #endif
+          
+          #ifdef CONFIG_KSU_SUSFS
+          void susfs_reorder_mnt_id(void) {
+              // Default implementation - no-op
+              return;
+          }
+          EXPORT_SYMBOL(susfs_reorder_mnt_id);
+          #endif
+          SUSFS_PATCH
+          
+          echo "✅ SUSFS patches applied!"
+      
+      - name: 🔧 Patch PKVM if needed
+        working-directory: kernel
+        run: |
+          if [ -f "arch/arm64/kvm/pkvm.c" ]; then
+            echo "Patching PKVM..."
+            
+            # Add stub for pkvm_load_early_modules if it's missing
+            if ! grep -q "pkvm_load_early_modules" arch/arm64/kvm/pkvm.c; then
+              cat >> arch/arm64/kvm/pkvm.c << 'PKVM_PATCH'
+          
+          #ifdef CONFIG_MODULES
+          int pkvm_load_early_modules(void) {
+              return 0;  // Stub implementation
+          }
+          #endif
+          PKVM_PATCH
+            fi
+            
+            echo "✅ PKVM patches applied!"
+          fi
       
       - name: 🏗️ Build
         working-directory: kernel
