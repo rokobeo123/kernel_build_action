@@ -222,6 +222,12 @@ jobs:
           scripts/config --enable CONFIG_PKVM
           scripts/config --enable CONFIG_GUNYAH
           
+          # Disable module signing to avoid signature issues
+          scripts/config --disable CONFIG_MODULE_SIG
+          scripts/config --disable CONFIG_MODULE_SIG_ALL
+          scripts/config --disable CONFIG_MODULE_SIG_FORCE
+          scripts/config --disable CONFIG_SECURITY_LOADPIN
+          
           # Enable all SUSFS sub-features
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_SU
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
@@ -236,6 +242,27 @@ jobs:
         run: |
           echo "Patching SUSFS missing functions..."
           
+          # Check what functions are actually in susfs.c
+          echo "Checking existing SUSFS functions..."
+          grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c || echo "Functions not found, will add them"
+          
+          # Add missing SUSFS function declarations to header if needed
+          if [ -f "include/linux/susfs.h" ]; then
+            if ! grep -q "susfs_is_avc_log_spoofing_enabled" include/linux/susfs.h; then
+              cat >> include/linux/susfs.h << 'SUSFS_HEADER'
+          
+          // Added missing function declarations
+          #ifdef CONFIG_KSU_SUSFS_SUS_KLOG
+          bool susfs_is_avc_log_spoofing_enabled(void);
+          #endif
+          
+          #ifdef CONFIG_KSU_SUSFS
+          void susfs_reorder_mnt_id(void);
+          #endif
+          SUSFS_HEADER
+            fi
+          fi
+          
           # Add missing SUSFS functions to susfs.c
           cat >> fs/susfs.c << 'SUSFS_PATCH'
           
@@ -244,7 +271,7 @@ jobs:
           bool susfs_is_avc_log_spoofing_enabled(void) {
               return false;  // Default implementation
           }
-          EXPORT_SYMBOL(susfs_is_avc_log_spoofing_enabled);
+          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
           #endif
           
           #ifdef CONFIG_KSU_SUSFS
@@ -252,7 +279,7 @@ jobs:
               // Default implementation - no-op
               return;
           }
-          EXPORT_SYMBOL(susfs_reorder_mnt_id);
+          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
           #endif
           SUSFS_PATCH
           
@@ -295,16 +322,25 @@ jobs:
           make kernelversion
           make olddefconfig 2>&1 || true
           
+          echo "Starting kernel build..."
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
           
+          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+          
           if [ -f arch/arm64/boot/Image.gz ]; then
             echo "✅ SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
+            exit 0
           else
-            echo "❌ FAILED!"
-            tail -300 ../build.log
+            echo "❌ BUILD FAILED!"
+            echo ""
+            echo "=== Last 500 lines of build log ==="
+            tail -500 ../build.log
+            echo ""
+            echo "=== Searching for errors ==="
+            grep -i "error:" ../build.log | tail -50 || true
             exit 1
           fi
       
