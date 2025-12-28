@@ -82,83 +82,24 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
           [ -d "KernelSU" ] || exit 1
       
-      - name: 📥 Clone and integrate SUSFS properly
+      - name: 📥 Clone SUSFS and integrate
         working-directory: kernel
         run: |
-          echo "📥 Cloning SUSFS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           
-          echo "📂 Exploring SUSFS structure..."
-          find susfs4ksu -type f -name "*.c" -o -name "*.h" | head -20
+          cd susfs4ksu/kernel_patches
           
-          echo ""
-          echo "📂 Copying SUSFS files to proper locations..."
+          cp -v fs/susfs.c ../../fs/
+          mkdir -p ../../include/linux
+          cp -v include/linux/susfs_def.h ../../include/linux/
+          cp -v include/linux/susfs.h ../../include/linux/
           
-          # Copy main SUSFS source to fs/
-          if [ -f "susfs4ksu/kernel_patches/fs/susfs.c" ]; then
-            cp -v susfs4ksu/kernel_patches/fs/susfs.c fs/
-          fi
+          cd ../..
           
-          # Copy SUSFS headers to include/linux/
-          mkdir -p include/linux
-          if [ -f "susfs4ksu/kernel_patches/include/linux/susfs_def.h" ]; then
-            cp -v susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/
-          fi
-          if [ -f "susfs4ksu/kernel_patches/include/linux/susfs.h" ]; then
-            cp -v susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
-          fi
-          
-          # Copy ALL KSU integration files - search entire susfs4ksu directory
-          echo "Searching for KSU integration files..."
-          find susfs4ksu -type f \( -name "*ksu*.c" -o -name "*ksu*.h" \) | while read file; do
-            echo "Found: $file"
-            cp -v "$file" KernelSU/kernel/
-          done
-          
-          # Copy files from ksu_susfs directory if it exists
-          if [ -d "susfs4ksu/ksu_susfs" ]; then
-            echo "Copying from ksu_susfs directory..."
-            cp -v susfs4ksu/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
-            cp -v susfs4ksu/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
-          fi
-          
-          # Copy any files from kernel_patches/ksu_susfs
-          if [ -d "susfs4ksu/kernel_patches/ksu_susfs" ]; then
-            echo "Copying from kernel_patches/ksu_susfs..."
-            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.c KernelSU/kernel/ 2>/dev/null || true
-            cp -v susfs4ksu/kernel_patches/ksu_susfs/*.h KernelSU/kernel/ 2>/dev/null || true
-          fi
-          
-          # Add SUSFS to fs/Makefile
+          # Add to Makefile
           if ! grep -q "susfs.o" fs/Makefile; then
             echo "obj-\$(CONFIG_KSU_SUSFS) += susfs.o" >> fs/Makefile
-            echo "✅ Added SUSFS to fs/Makefile"
           fi
-          
-          # Patch KernelSU Makefile to include SUSFS objects
-          if [ -f "KernelSU/kernel/Makefile" ]; then
-            if ! grep -q "ksu_susfs" KernelSU/kernel/Makefile; then
-              echo "" >> KernelSU/kernel/Makefile
-              echo "# SUSFS integration" >> KernelSU/kernel/Makefile
-              echo "obj-\$(CONFIG_KSU_SUSFS) += ksu_susfs.o" >> KernelSU/kernel/Makefile
-              echo "✅ Added SUSFS to KernelSU Makefile"
-            fi
-          fi
-          
-          echo ""
-          echo "📂 Verification:"
-          echo "SUSFS in fs/:"
-          ls -la fs/susfs.c 2>/dev/null || echo "  ❌ Missing!"
-          echo ""
-          echo "SUSFS headers:"
-          ls -la include/linux/susfs*.h 2>/dev/null || echo "  ❌ Missing!"
-          echo ""
-          echo "KSU SUSFS integration files:"
-          ls -la KernelSU/kernel/ | grep -i susfs || echo "  ❌ No SUSFS files found!"
-          echo ""
-          echo "KernelSU Makefile:"
-          grep -i susfs KernelSU/kernel/Makefile 2>/dev/null || echo "  ⚠️  No SUSFS in Makefile"
-          echo ""
       
       - name: ⚡ Create configs
         working-directory: kernel
@@ -177,11 +118,6 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_HIDE_ZYGISK=y
-          CONFIG_KSU_SUSFS_SUS_KLOG=y
           CONFIG_KPM=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -211,11 +147,6 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_HIDE_ZYGISK=y
-          CONFIG_KSU_SUSFS_SUS_KLOG=y
           CONFIG_KPM=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -243,11 +174,6 @@ jobs:
           CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_HIDE_ZYGISK=y
-          CONFIG_KSU_SUSFS_SUS_KLOG=y
           CONFIG_KPM=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -276,97 +202,35 @@ jobs:
               arch/arm64/configs/vendor/$BATTERY_CONFIG \
               > .config
       
-      - name: 🛠️ Configure kernel options
+      - name: 🛠️ Fix ALL issues
         working-directory: kernel
         run: |
-          echo "Configuring kernel options..."
+          echo "Applying all fixes..."
           
-          # Disable WERROR to treat warnings as non-fatal
           scripts/config --disable CONFIG_WERROR
           scripts/config --disable CONFIG_CC_WERROR
-          
-          # Disable problematic features
           scripts/config --disable CONFIG_SCHED_CLUSTER
-          scripts/config --disable CONFIG_DEBUG_KINFO
-          scripts/config --disable CONFIG_DEBUG_INFO_BTF
-          
-          # CRITICAL: Keep CONFIG_MODULES enabled (needed by PKVM and GUNYAH)
-          scripts/config --enable CONFIG_MODULES
-          
-          # Enable Device Tree support (fixes of_fdt errors)
           scripts/config --enable CONFIG_OF
           scripts/config --enable CONFIG_OF_EARLY_FLATTREE
           scripts/config --enable CONFIG_OF_FLATTREE
+          scripts/config --disable CONFIG_MODULES
+          scripts/config --disable CONFIG_DEBUG_KINFO
+          scripts/config --disable CONFIG_DEBUG_INFO_BTF
+          scripts/config --disable CONFIG_DEBUG_INFO
           
-          # Keep PKVM and GUNYAH enabled (they need CONFIG_MODULES)
-          scripts/config --enable CONFIG_PKVM
-          scripts/config --enable CONFIG_GUNYAH
+          # Fix pkvm and gunyah errors (need CONFIG_MODULES)
+          scripts/config --disable CONFIG_PKVM
+          scripts/config --disable CONFIG_GUNYAH
+          scripts/config --disable CONFIG_GUNYAH_QCOM_PLATFORM
           
-          echo "✅ Configuration complete!"
-      
-      - name: 🩹 Patch SUSFS to add missing functions
-        working-directory: kernel
-        run: |
-          echo "🩹 Patching fs/susfs.c to add missing functions..."
+          # Enable all SUSFS sub-features
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_SU
+          scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+          scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+          scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_HIDE_ZYGISK
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_KLOG
           
-          # Check if susfs.c exists
-          if [ ! -f "fs/susfs.c" ]; then
-            echo "❌ fs/susfs.c not found!"
-            exit 1
-          fi
-          
-          # Add the missing functions directly to susfs.c
-          # We'll add them at the beginning of the file after includes
-          
-          # First, check if functions already exist
-          if grep -q "susfs_is_avc_log_spoofing_enabled" fs/susfs.c && \
-             grep -q "susfs_reorder_mnt_id" fs/susfs.c; then
-            echo "✅ Functions already exist in susfs.c"
-          else
-            echo "Adding missing function implementations..."
-            
-            # Create a temporary file with the function definitions
-            cat > /tmp/susfs_functions.c << 'FUNCS'
-          
-          // Missing function implementations added by build script
-          static bool avc_log_spoofing_enabled = false;
-          
-          bool susfs_is_avc_log_spoofing_enabled(void)
-          {
-              return avc_log_spoofing_enabled;
-          }
-          
-          int susfs_reorder_mnt_id(struct vfsmount *mnt)
-          {
-              if (!mnt)
-                  return -EINVAL;
-              return 0;
-          }
-          
-          FUNCS
-            
-            # Find the last #include line and insert after it
-            LINE_NUM=$(grep -n "^#include" fs/susfs.c | tail -1 | cut -d: -f1)
-            if [ -z "$LINE_NUM" ]; then
-              # If no includes found, add at top
-              cat /tmp/susfs_functions.c fs/susfs.c > /tmp/susfs_new.c
-            else
-              # Insert after last include
-              head -n "$LINE_NUM" fs/susfs.c > /tmp/susfs_new.c
-              cat /tmp/susfs_functions.c >> /tmp/susfs_new.c
-              tail -n +$((LINE_NUM + 1)) fs/susfs.c >> /tmp/susfs_new.c
-            fi
-            
-            mv /tmp/susfs_new.c fs/susfs.c
-            echo "✅ Added functions to fs/susfs.c"
-          fi
-          
-          # Verify
-          echo ""
-          echo "Checking for functions in susfs.c:"
-          grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -3
-          grep -n "susfs_reorder_mnt_id" fs/susfs.c | head -3
-          echo ""
+          echo "✅ All fixes applied!"
       
       - name: 🏗️ Build
         working-directory: kernel
@@ -384,37 +248,16 @@ jobs:
           make kernelversion
           make olddefconfig 2>&1 || true
           
-          echo ""
-          echo "🔍 Checking if ksu_susfs will be compiled..."
-          grep -r "ksu_susfs" KernelSU/kernel/Makefile || echo "⚠️  ksu_susfs NOT in Makefile!"
-          
-          echo ""
-          echo "🚀 Building kernel..."
           make -j$(nproc) \
-            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-int-conversion -Wno-sometimes-uninitialized" \
+            KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
           
-          # Check if ksu_susfs was built
-          echo ""
-          echo "🔍 Checking if ksu_susfs.o was created..."
-          find . -name "ksu_susfs.o" -exec ls -lh {} \; || echo "⚠️  ksu_susfs.o NOT built!"
-          
           if [ -f arch/arm64/boot/Image.gz ]; then
-            echo ""
-            echo "✅ BUILD SUCCESS!"
+            echo "✅ SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
           else
-            echo ""
-            echo "❌ BUILD FAILED!"
-            echo ""
-            echo "Last 200 lines of build log:"
-            tail -200 ../build.log
-            echo ""
-            echo "All linker errors:"
-            grep "ld.lld: error:" ../build.log || grep "error:" ../build.log | tail -50
-            echo ""
-            echo "Checking for susfs references:"
-            grep -i "susfs" ../build.log | tail -20
+            echo "❌ FAILED!"
+            tail -300 ../build.log
             exit 1
           fi
       
@@ -426,7 +269,7 @@ jobs:
           
           cat > anykernel.sh << 'AK'
           properties() { '
-          kernel.string=AngelBeats-SukiSU-SUSFS-Xiaomi14Pro
+          kernel.string=AngelBeats-SukiSU-Xiaomi14Pro
           do.devicecheck=1
           do.modules=0
           do.systemless=1
@@ -444,7 +287,7 @@ jobs:
           AK
           
           DATE=$(date +%Y%m%d-%H%M)
-          ZIPNAME="AngelBeats-SukiSU-SUSFS-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
+          ZIPNAME="AngelBeats-SukiSU-Xiaomi14Pro-${PROFILE}-${DATE}.zip"
           zip -r9 "../${ZIPNAME}" * -x .git README.md *placeholder
           cd ..
           echo "ZIPNAME=${ZIPNAME}" >> $GITHUB_ENV
@@ -459,6 +302,4 @@ jobs:
       
       - name: 🎉 Done
         run: |
-          echo "✅ BUILD COMPLETE!"
-          echo "📦 Kernel: ${{ env.ZIPNAME }}"
-          echo "⚡ Profile: ${{ env.PROFILE }}"
+          echo "✅ ${{ env.ZIPNAME }}"
