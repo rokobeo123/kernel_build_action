@@ -246,42 +246,53 @@ jobs:
           echo "Checking existing SUSFS functions..."
           grep -n "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c || echo "Functions not found, will add them"
           
-          # Add missing SUSFS function declarations to header if needed
+          # First, let's check the actual structure of susfs.c
+          echo "=== Checking susfs.c structure ==="
+          head -50 fs/susfs.c
+          
+          # Find where to insert the functions (before the last #endif usually)
+          # Instead of appending, let's insert them properly
+          
+          # Create a patch file with the missing functions
+          cat > /tmp/susfs_funcs.c << 'SUSFS_FUNCS'
+          
+          // Missing SUSFS functions - unconditionally defined
+          bool susfs_is_avc_log_spoofing_enabled(void) {
+              return false;
+          }
+          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
+          
+          void susfs_reorder_mnt_id(void) {
+              // No-op implementation
+          }
+          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
+          SUSFS_FUNCS
+          
+          # Insert before the last line of susfs.c
+          head -n -1 fs/susfs.c > /tmp/susfs_temp.c
+          cat /tmp/susfs_funcs.c >> /tmp/susfs_temp.c
+          tail -n 1 fs/susfs.c >> /tmp/susfs_temp.c
+          mv /tmp/susfs_temp.c fs/susfs.c
+          
+          # Add declarations to header
           if [ -f "include/linux/susfs.h" ]; then
             if ! grep -q "susfs_is_avc_log_spoofing_enabled" include/linux/susfs.h; then
-              cat >> include/linux/susfs.h << 'SUSFS_HEADER'
+              # Find the last #endif and insert before it
+              head -n -1 include/linux/susfs.h > /tmp/susfs_h_temp
+              cat >> /tmp/susfs_h_temp << 'SUSFS_HEADER'
           
           // Added missing function declarations
-          #ifdef CONFIG_KSU_SUSFS_SUS_KLOG
           bool susfs_is_avc_log_spoofing_enabled(void);
-          #endif
-          
-          #ifdef CONFIG_KSU_SUSFS
           void susfs_reorder_mnt_id(void);
-          #endif
+          
           SUSFS_HEADER
+              tail -n 1 include/linux/susfs.h >> /tmp/susfs_h_temp
+              mv /tmp/susfs_h_temp include/linux/susfs.h
             fi
           fi
           
-          # Add missing SUSFS functions to susfs.c
-          cat >> fs/susfs.c << 'SUSFS_PATCH'
-          
-          // Added missing functions
-          #ifdef CONFIG_KSU_SUSFS_SUS_KLOG
-          bool susfs_is_avc_log_spoofing_enabled(void) {
-              return false;  // Default implementation
-          }
-          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
-          #endif
-          
-          #ifdef CONFIG_KSU_SUSFS
-          void susfs_reorder_mnt_id(void) {
-              // Default implementation - no-op
-              return;
-          }
-          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
-          #endif
-          SUSFS_PATCH
+          echo "=== Verifying patches ==="
+          grep -A2 "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" fs/susfs.c
           
           echo "✅ SUSFS patches applied!"
       
