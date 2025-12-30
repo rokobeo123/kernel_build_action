@@ -246,67 +246,58 @@ jobs:
         run: |
           echo "Patching SUSFS missing functions..."
           
-          echo "=== Analyzing susfs.c structure ==="
-          if [ -f "fs/susfs.c" ]; then
-            echo "File size: $(wc -l fs/susfs.c)"
-            echo "Looking for function definitions:"
-            grep -n "^bool susfs_is_avc_log_spoofing_enabled\|^static bool susfs_is_avc_log_spoofing_enabled\|^int susfs_set_avc_log_spoofing" fs/susfs.c || echo "Pattern not found"
-            echo ""
-            echo "Looking for any reference:"
-            grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -20
-            echo ""
-            echo "Checking around line 839-850:"
-            sed -n '835,855p' fs/susfs.c
+          echo "=== Step 1: Analyze susfs.c ==="
+          sed -n '835,855p' fs/susfs.c
+          
+          echo ""
+          echo "=== Step 2: Fix susfs.c directly ==="
+          
+          # The variable exists but needs to be non-static and exported
+          # Change: static bool susfs_is_avc_log_spoofing_enabled = false;
+          # To: bool susfs_is_avc_log_spoofing_enabled = false;
+          sed -i 's/^static bool susfs_is_avc_log_spoofing_enabled/bool susfs_is_avc_log_spoofing_enabled/' fs/susfs.c
+          
+          # Add EXPORT_SYMBOL after the variable declaration
+          if ! grep -q "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
+            sed -i '/^bool susfs_is_avc_log_spoofing_enabled.*=/a\
+          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);' fs/susfs.c
+          fi
+          
+          # Add susfs_reorder_mnt_id function if it doesn't exist
+          if ! grep -q "susfs_reorder_mnt_id" fs/susfs.c; then
+            echo "" >> fs/susfs.c
+            echo "void susfs_reorder_mnt_id(void) {" >> fs/susfs.c
+            echo "    /* Stub */" >> fs/susfs.c  
+            echo "}" >> fs/susfs.c
+            echo "EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);" >> fs/susfs.c
           fi
           
           echo ""
-          echo "=== Creating comprehensive patch ==="
+          echo "=== Step 3: Update header ==="
           
-          # The issue is likely that susfs_is_avc_log_spoofing_enabled is a static variable or inside #ifdef
-          # Let's create a new file with the missing functions
-          cat > fs/susfs_compat.c << 'COMPAT'
-          #include <linux/susfs.h>
-          #include <linux/module.h>
-          
-          // Compatibility functions for missing SUSFS symbols
-          
-          #ifndef CONFIG_KSU_SUSFS_SUS_KLOG
-          bool susfs_is_avc_log_spoofing_enabled(void) {
-              return false;
-          }
-          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);
-          #endif
-          
-          void susfs_reorder_mnt_id(void) {
-              // No-op stub
-          }
-          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
-          COMPAT
-          
-          # Add to Makefile
-          if ! grep -q "susfs_compat.o" fs/Makefile; then
-            echo "obj-\$(CONFIG_KSU_SUSFS) += susfs_compat.o" >> fs/Makefile
-          fi
-          
-          # Add declarations to header
+          # Update header to declare the variable and function
           if [ -f "include/linux/susfs.h" ]; then
-            if ! grep -q "susfs_is_avc_log_spoofing_enabled.*;" include/linux/susfs.h; then
+            if ! grep -q "extern bool susfs_is_avc_log_spoofing_enabled" include/linux/susfs.h; then
               sed -i '/^#endif/i\
           \
-          /* Compatibility declarations */\
-          bool susfs_is_avc_log_spoofing_enabled(void);\
+          /* Exported symbols */\
+          extern bool susfs_is_avc_log_spoofing_enabled;\
           void susfs_reorder_mnt_id(void);' include/linux/susfs.h
             fi
           fi
           
-          echo "=== Verification ==="
-          echo "susfs_compat.c created:"
-          cat fs/susfs_compat.c
           echo ""
-          echo "Makefile updated:"
-          grep "susfs" fs/Makefile
+          echo "=== Verification ==="
+          echo "Variable declaration:"
+          grep -n "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c
+          echo ""
+          echo "EXPORT_SYMBOL:"
+          grep "EXPORT_SYMBOL.*susfs" fs/susfs.c
+          echo ""
+          echo "Header declarations:"
+          grep "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" include/linux/susfs.h
           
-          echo "✅ SUSFS compatibility layer added!"
+          echo "✅ SUSFS patched!"
       
       - name: 🔧 Patch PKVM if needed
         working-directory: kernel
