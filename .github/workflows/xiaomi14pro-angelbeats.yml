@@ -246,58 +246,88 @@ jobs:
         run: |
           echo "Patching SUSFS missing functions..."
           
-          echo "=== Step 1: Analyze susfs.c ==="
-          sed -n '835,855p' fs/susfs.c
+          echo "=== Step 1: Analyze current susfs.c ==="
+          echo "Lines 835-860:"
+          sed -n '835,860p' fs/susfs.c
           
           echo ""
-          echo "=== Step 2: Fix susfs.c directly ==="
+          echo "=== Step 2: Search for all occurrences ==="
+          grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c
           
-          # The variable exists but needs to be non-static and exported
-          # Change: static bool susfs_is_avc_log_spoofing_enabled = false;
-          # To: bool susfs_is_avc_log_spoofing_enabled = false;
-          sed -i 's/^static bool susfs_is_avc_log_spoofing_enabled/bool susfs_is_avc_log_spoofing_enabled/' fs/susfs.c
+          echo ""
+          echo "=== Step 3: Direct patching approach ==="
           
-          # Add EXPORT_SYMBOL after the variable declaration
+          # Method 1: Make the variable non-static
+          if grep -q "^static bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
+            echo "Removing static from variable..."
+            sed -i 's/^static bool susfs_is_avc_log_spoofing_enabled/bool susfs_is_avc_log_spoofing_enabled/' fs/susfs.c
+          fi
+          
+          # Method 2: Add EXPORT_SYMBOL right after the variable line
           if ! grep -q "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
-            sed -i '/^bool susfs_is_avc_log_spoofing_enabled.*=/a\
-          EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);' fs/susfs.c
-          fi
-          
-          # Add susfs_reorder_mnt_id function if it doesn't exist
-          if ! grep -q "susfs_reorder_mnt_id" fs/susfs.c; then
-            echo "" >> fs/susfs.c
-            echo "void susfs_reorder_mnt_id(void) {" >> fs/susfs.c
-            echo "    /* Stub */" >> fs/susfs.c  
-            echo "}" >> fs/susfs.c
-            echo "EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);" >> fs/susfs.c
-          fi
-          
-          echo ""
-          echo "=== Step 3: Update header ==="
-          
-          # Update header to declare the variable and function
-          if [ -f "include/linux/susfs.h" ]; then
-            if ! grep -q "extern bool susfs_is_avc_log_spoofing_enabled" include/linux/susfs.h; then
-              sed -i '/^#endif/i\
-          \
-          /* Exported symbols */\
-          extern bool susfs_is_avc_log_spoofing_enabled;\
-          void susfs_reorder_mnt_id(void);' include/linux/susfs.h
+            echo "Adding EXPORT_SYMBOL for variable..."
+            # Find the line number and add EXPORT after it
+            LINE_NUM=$(grep -n "^bool susfs_is_avc_log_spoofing_enabled.*=" fs/susfs.c | head -1 | cut -d: -f1)
+            if [ -n "$LINE_NUM" ]; then
+              sed -i "${LINE_NUM}a EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" fs/susfs.c
+            else
+              # If pattern not found, try at the end of file
+              echo "" >> fs/susfs.c
+              echo "// Export for external use" >> fs/susfs.c
+              echo "EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" >> fs/susfs.c
             fi
           fi
           
-          echo ""
-          echo "=== Verification ==="
-          echo "Variable declaration:"
-          grep -n "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c
-          echo ""
-          echo "EXPORT_SYMBOL:"
-          grep "EXPORT_SYMBOL.*susfs" fs/susfs.c
-          echo ""
-          echo "Header declarations:"
-          grep "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" include/linux/susfs.h
+          # Method 3: Add susfs_reorder_mnt_id function
+          if ! grep -q "void susfs_reorder_mnt_id" fs/susfs.c; then
+            echo "Adding susfs_reorder_mnt_id..."
+            cat >> fs/susfs.c << 'REORDER'
           
-          echo "✅ SUSFS patched!"
+          void susfs_reorder_mnt_id(void)
+          {
+              return;
+          }
+          EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
+          REORDER
+          fi
+          
+          echo ""
+          echo "=== Step 4: Update header file ==="
+          if [ -f "include/linux/susfs.h" ]; then
+            # Remove old declarations if they exist
+            sed -i '/extern bool susfs_is_avc_log_spoofing_enabled/d' include/linux/susfs.h
+            sed -i '/void susfs_reorder_mnt_id/d' include/linux/susfs.h
+            
+            # Add new declarations before the last #endif
+            sed -i '/^#endif.*SUSFS/i\
+          extern bool susfs_is_avc_log_spoofing_enabled;\
+          void susfs_reorder_mnt_id(void);' include/linux/susfs.h
+          fi
+          
+          echo ""
+          echo "=== Step 5: Verify changes ==="
+          echo "Variable in susfs.c:"
+          grep -A1 "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -5
+          
+          echo ""
+          echo "All EXPORT_SYMBOL in susfs.c:"
+          grep "EXPORT_SYMBOL" fs/susfs.c
+          
+          echo ""
+          echo "Function susfs_reorder_mnt_id:"
+          grep -A3 "void susfs_reorder_mnt_id" fs/susfs.c
+          
+          echo ""
+          echo "Header file declarations:"
+          grep -E "susfs_is_avc_log_spoofing_enabled|susfs_reorder_mnt_id" include/linux/susfs.h
+          
+          echo ""
+          echo "=== Step 6: Check if susfs.o will be built ==="
+          echo "Makefile entries:"
+          grep susfs fs/Makefile
+          
+          echo ""
+          echo "✅ SUSFS patching complete!"
       
       - name: 🔧 Patch PKVM if needed
         working-directory: kernel
@@ -337,6 +367,15 @@ jobs:
           make kernelversion
           make olddefconfig 2>&1 || true
           
+          echo ""
+          echo "=== Checking .config for SUSFS ==="
+          grep "CONFIG_KSU_SUSFS" .config || echo "SUSFS config not found!"
+          
+          echo ""
+          echo "=== Checking if susfs.o will be built ==="
+          make -n fs/susfs.o 2>&1 | head -20 || echo "Cannot dry-run susfs.o"
+          
+          echo ""
           echo "Starting kernel build..."
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
@@ -344,20 +383,32 @@ jobs:
           
           BUILD_EXIT_CODE=${PIPESTATUS[0]}
           
+          # Check if Image.gz was created
           if [ -f arch/arm64/boot/Image.gz ]; then
             echo "✅ SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
             exit 0
-          else
-            echo "❌ BUILD FAILED!"
-            echo ""
-            echo "=== Last 500 lines of build log ==="
-            tail -500 ../build.log
-            echo ""
-            echo "=== Searching for errors ==="
-            grep -i "error:" ../build.log | tail -50 || true
-            exit 1
           fi
+          
+          # If build failed, provide detailed diagnostics
+          echo "❌ BUILD FAILED!"
+          echo ""
+          echo "=== Checking if susfs.o was built ==="
+          find . -name "susfs.o" -o -name "susfs.ko" 2>/dev/null
+          
+          echo ""
+          echo "=== Last 100 lines of build log ==="
+          tail -100 ../build.log
+          
+          echo ""
+          echo "=== All errors ==="
+          grep -i "error:" ../build.log | tail -50 || true
+          
+          echo ""
+          echo "=== Undefined symbol errors ==="
+          grep "undefined symbol" ../build.log || true
+          
+          exit 1
       
       - name: 📦 Package
         run: |
