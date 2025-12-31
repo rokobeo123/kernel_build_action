@@ -266,78 +266,96 @@ jobs:
           
           echo ""
           echo "=== Step 2: Search for all occurrences ==="
-          grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c
+          grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -10
           
           echo ""
-          echo "=== Step 3: Direct patching approach ==="
+          echo "=== Step 3: Check what's calling this symbol ==="
+          echo "Files referencing susfs_is_avc_log_spoofing_enabled:"
+          grep -r "susfs_is_avc_log_spoofing_enabled" --include="*.c" . 2>/dev/null | grep -v "^Binary" | head -10
           
-          # Method 1: Make the variable non-static
+          echo ""
+          echo "=== Step 4: Direct patching approach ==="
+          
+          # Remove static keyword if present
           if grep -q "^static bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
             echo "Removing static from variable..."
             sed -i 's/^static bool susfs_is_avc_log_spoofing_enabled/bool susfs_is_avc_log_spoofing_enabled/' fs/susfs.c
           fi
           
-          # Method 2: Add EXPORT_SYMBOL right after the variable line
+          # Add EXPORT_SYMBOL - try multiple methods
           if ! grep -q "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
             echo "Adding EXPORT_SYMBOL for variable..."
-            # Find the line number and add EXPORT after it
-            LINE_NUM=$(grep -n "^bool susfs_is_avc_log_spoofing_enabled.*=" fs/susfs.c | head -1 | cut -d: -f1)
+            
+            # Method 1: Add after the declaration line
+            LINE_NUM=$(grep -n "^bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -1 | cut -d: -f1)
             if [ -n "$LINE_NUM" ]; then
+              echo "Found variable at line $LINE_NUM"
               sed -i "${LINE_NUM}a EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" fs/susfs.c
-            else
-              # If pattern not found, try at the end of file
-              echo "" >> fs/susfs.c
-              echo "// Export for external use" >> fs/susfs.c
-              echo "EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" >> fs/susfs.c
             fi
+            
+            # Method 2: Also add at the end of file as backup
+            echo "" >> fs/susfs.c
+            echo "/* Ensure export visibility */" >> fs/susfs.c
+            echo "EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" >> fs/susfs.c
           fi
           
-          # Method 3: Add susfs_reorder_mnt_id function
+          # Add susfs_reorder_mnt_id function
           if ! grep -q "void susfs_reorder_mnt_id" fs/susfs.c; then
             echo "Adding susfs_reorder_mnt_id..."
             cat >> fs/susfs.c << 'REORDER'
           
           void susfs_reorder_mnt_id(void)
           {
-              return;
+              /* Stub implementation */
           }
           EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
           REORDER
           fi
           
           echo ""
-          echo "=== Step 4: Update header file ==="
+          echo "=== Step 5: Update header file ==="
           if [ -f "include/linux/susfs.h" ]; then
-            # Remove old declarations if they exist
+            # Check current content
+            echo "Current header end:"
+            tail -10 include/linux/susfs.h
+            
+            # Remove duplicates
             sed -i '/extern bool susfs_is_avc_log_spoofing_enabled/d' include/linux/susfs.h
             sed -i '/void susfs_reorder_mnt_id/d' include/linux/susfs.h
             
-            # Add new declarations before the last #endif
-            sed -i '/^#endif.*SUSFS/i\
-          extern bool susfs_is_avc_log_spoofing_enabled;\
-          void susfs_reorder_mnt_id(void);' include/linux/susfs.h
+            # Add declarations
+            # Find the last #endif and insert before it
+            LAST_LINE=$(wc -l < include/linux/susfs.h)
+            sed -i "${LAST_LINE}i\\
+          /* Exported symbols */\\
+          extern bool susfs_is_avc_log_spoofing_enabled;\\
+          void susfs_reorder_mnt_id(void);\\
+          " include/linux/susfs.h
           fi
           
           echo ""
-          echo "=== Step 5: Verify changes ==="
+          echo "=== Step 6: Verify all changes ==="
           echo "Variable in susfs.c:"
-          grep -A1 "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -5
+          grep -n "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c
           
           echo ""
-          echo "All EXPORT_SYMBOL in susfs.c:"
-          grep "EXPORT_SYMBOL" fs/susfs.c
+          echo "EXPORT_SYMBOL in susfs.c:"
+          grep -n "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c
           
           echo ""
           echo "Function susfs_reorder_mnt_id:"
           grep -A3 "void susfs_reorder_mnt_id" fs/susfs.c
           
           echo ""
-          echo "Header file declarations:"
-          grep -E "susfs_is_avc_log_spoofing_enabled|susfs_reorder_mnt_id" include/linux/susfs.h
+          echo "EXPORT_SYMBOL for reorder:"
+          grep "EXPORT_SYMBOL.*susfs_reorder_mnt_id" fs/susfs.c
           
           echo ""
-          echo "=== Step 6: Check if susfs.o will be built ==="
-          echo "Makefile entries:"
+          echo "Header file (last 15 lines):"
+          tail -15 include/linux/susfs.h
+          
+          echo ""
+          echo "=== Step 7: Double-check Makefile ==="
           grep susfs fs/Makefile
           
           echo ""
@@ -387,18 +405,36 @@ jobs:
           echo ""
           echo "=== Final .config check ==="
           echo "KSU configs:"
-          grep "CONFIG_KSU" .config | head -20
+          grep "^CONFIG_KSU" .config | head -20
           echo ""
           echo "SUSFS status:"
-          grep "CONFIG_KSU_SUSFS" .config || echo "❌ CONFIG_KSU_SUSFS not found!"
+          grep "^CONFIG_KSU_SUSFS" .config || echo "❌ CONFIG_KSU_SUSFS not found!"
           
           echo ""
           echo "=== Checking Makefile ==="
           echo "fs/Makefile SUSFS entries:"
-          grep -i susfs fs/Makefile || echo "❌ No SUSFS in fs/Makefile!"
+          grep susfs fs/Makefile || echo "❌ No SUSFS in fs/Makefile!"
           
           echo ""
-          echo "=== Starting kernel build ==="
+          echo "=== First, try building susfs.o specifically ==="
+          make fs/susfs.o 2>&1 | tee ../susfs_build.log || true
+          
+          if [ -f fs/susfs.o ]; then
+            echo "✅ susfs.o was built successfully!"
+            echo "Checking symbols in susfs.o:"
+            nm fs/susfs.o | grep -i susfs_is_avc || echo "Symbol not found in object file"
+            nm fs/susfs.o | grep -i susfs_reorder || echo "Reorder symbol not found"
+            echo ""
+            echo "All exported symbols in susfs.o:"
+            nm fs/susfs.o | grep " T \| D \| R " | head -20
+          else
+            echo "❌ Failed to build susfs.o"
+            echo "Build errors:"
+            tail -50 ../susfs_build.log
+          fi
+          
+          echo ""
+          echo "=== Starting full kernel build ==="
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
@@ -418,16 +454,15 @@ jobs:
           echo "❌ BUILD FAILED!"
           
           echo ""
-          echo "=== Was susfs.o built? ==="
-          find . -name "susfs.*" 2>/dev/null | head -10
+          echo "=== Checking vmlinux for symbols ==="
+          if [ -f vmlinux ]; then
+            nm vmlinux | grep -i susfs_is_avc || echo "Symbol not in vmlinux"
+            nm vmlinux | grep -i susfs_reorder || echo "Reorder not in vmlinux"
+          fi
           
           echo ""
-          echo "=== Checking build artifacts ==="
-          ls -lh fs/*.o 2>/dev/null | grep susfs || echo "No susfs.o found"
-          
-          echo ""
-          echo "=== Last 150 lines of build log ==="
-          tail -150 ../build.log
+          echo "=== Last 200 lines of build log ==="
+          tail -200 ../build.log
           
           echo ""
           echo "=== All linker errors ==="
