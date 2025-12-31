@@ -232,14 +232,28 @@ jobs:
           scripts/config --disable CONFIG_MODULE_SIG_FORCE
           scripts/config --disable CONFIG_SECURITY_LOADPIN
           
-          # Enable all SUSFS sub-features
+          # Force SUSFS to be built-in (=y not =m)
+          scripts/config --enable CONFIG_KSU_SUSFS
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_SU
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_HIDE_ZYGISK
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_KLOG
+          scripts/config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_PATH
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_KSTAT
+          scripts/config --enable CONFIG_KSU_SUSFS_SUS_OVERLAYFS
+          scripts/config --enable CONFIG_KSU_SUSFS_TRY_UMOUNT
+          scripts/config --enable CONFIG_KSU_SUSFS_SPOOF_UNAME
+          scripts/config --enable CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT
+          scripts/config --enable CONFIG_KSU_SUSFS_ENABLE_LOG
           
           echo "✅ All fixes applied!"
+          
+          echo ""
+          echo "=== Verifying config ==="
+          grep "CONFIG_KSU" .config | grep -v "^#"
       
       - name: 🔧 Patch SUSFS missing functions
         working-directory: kernel
@@ -365,18 +379,26 @@ jobs:
           
           clang --version | head -1
           make kernelversion
-          make olddefconfig 2>&1 || true
           
           echo ""
-          echo "=== Checking .config for SUSFS ==="
-          grep "CONFIG_KSU_SUSFS" .config || echo "SUSFS config not found!"
+          echo "=== Running olddefconfig ==="
+          make olddefconfig 2>&1 | tee ../olddefconfig.log
           
           echo ""
-          echo "=== Checking if susfs.o will be built ==="
-          make -n fs/susfs.o 2>&1 | head -20 || echo "Cannot dry-run susfs.o"
+          echo "=== Final .config check ==="
+          echo "KSU configs:"
+          grep "CONFIG_KSU" .config | head -20
+          echo ""
+          echo "SUSFS status:"
+          grep "CONFIG_KSU_SUSFS" .config || echo "❌ CONFIG_KSU_SUSFS not found!"
           
           echo ""
-          echo "Starting kernel build..."
+          echo "=== Checking Makefile ==="
+          echo "fs/Makefile SUSFS entries:"
+          grep -i susfs fs/Makefile || echo "❌ No SUSFS in fs/Makefile!"
+          
+          echo ""
+          echo "=== Starting kernel build ==="
           make -j$(nproc) \
             KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-sometimes-uninitialized" \
             2>&1 | tee ../build.log
@@ -385,28 +407,31 @@ jobs:
           
           # Check if Image.gz was created
           if [ -f arch/arm64/boot/Image.gz ]; then
-            echo "✅ SUCCESS!"
+            echo ""
+            echo "✅ BUILD SUCCESS!"
             ls -lh arch/arm64/boot/Image.gz
             exit 0
           fi
           
           # If build failed, provide detailed diagnostics
+          echo ""
           echo "❌ BUILD FAILED!"
-          echo ""
-          echo "=== Checking if susfs.o was built ==="
-          find . -name "susfs.o" -o -name "susfs.ko" 2>/dev/null
           
           echo ""
-          echo "=== Last 100 lines of build log ==="
-          tail -100 ../build.log
+          echo "=== Was susfs.o built? ==="
+          find . -name "susfs.*" 2>/dev/null | head -10
           
           echo ""
-          echo "=== All errors ==="
-          grep -i "error:" ../build.log | tail -50 || true
+          echo "=== Checking build artifacts ==="
+          ls -lh fs/*.o 2>/dev/null | grep susfs || echo "No susfs.o found"
           
           echo ""
-          echo "=== Undefined symbol errors ==="
-          grep "undefined symbol" ../build.log || true
+          echo "=== Last 150 lines of build log ==="
+          tail -150 ../build.log
+          
+          echo ""
+          echo "=== All linker errors ==="
+          grep "ld.lld: error" ../build.log || true
           
           exit 1
       
