@@ -118,6 +118,7 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          # CONFIG_KSU_SUSFS_SUS_KLOG is not set
           CONFIG_KPM=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -148,6 +149,7 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          # CONFIG_KSU_SUSFS_SUS_KLOG is not set
           CONFIG_KPM=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -176,6 +178,7 @@ jobs:
           CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          # CONFIG_KSU_SUSFS_SUS_KLOG is not set
           CONFIG_KPM=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
@@ -238,7 +241,7 @@ jobs:
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
           scripts/config --enable CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_HIDE_ZYGISK
-          scripts/config --enable CONFIG_KSU_SUSFS_SUS_KLOG
+          scripts/config --disable CONFIG_KSU_SUSFS_SUS_KLOG
           scripts/config --enable CONFIG_KSU_SUSFS_OPEN_REDIRECT
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_PATH
           scripts/config --enable CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -258,105 +261,93 @@ jobs:
       - name: 🔧 Patch SUSFS missing functions
         working-directory: kernel
         run: |
-          echo "Patching SUSFS missing functions..."
+          echo "=== Understanding the SUSFS code structure ==="
           
-          echo "=== Step 1: Analyze current susfs.c ==="
-          echo "Lines 835-860:"
-          sed -n '835,860p' fs/susfs.c
-          
-          echo ""
-          echo "=== Step 2: Search for all occurrences ==="
-          grep -n "susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -10
+          echo "Step 1: Check what config guards susfs_is_avc_log_spoofing_enabled"
+          grep -B5 -A5 "susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -40
           
           echo ""
-          echo "=== Step 3: Check what's calling this symbol ==="
-          echo "Files referencing susfs_is_avc_log_spoofing_enabled:"
-          grep -r "susfs_is_avc_log_spoofing_enabled" --include="*.c" . 2>/dev/null | grep -v "^Binary" | head -10
+          echo "Step 2: Check all #ifdef in susfs.c"
+          grep "#ifdef\|#ifndef\|#if defined" fs/susfs.c | head -30
           
           echo ""
-          echo "=== Step 4: Direct patching approach ==="
+          echo "Step 3: Who's calling these symbols?"
+          grep -r "susfs_is_avc_log_spoofing_enabled\|susfs_reorder_mnt_id" --include="*.c" drivers/ 2>/dev/null | head -10
           
-          # Remove static keyword if present
-          if grep -q "^static bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
-            echo "Removing static from variable..."
-            sed -i 's/^static bool susfs_is_avc_log_spoofing_enabled/bool susfs_is_avc_log_spoofing_enabled/' fs/susfs.c
-          fi
+          echo ""
+          echo "=== The Fix: Make symbols unconditionally available ==="
           
-          # Add EXPORT_SYMBOL - try multiple methods
-          if ! grep -q "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c; then
-            echo "Adding EXPORT_SYMBOL for variable..."
-            
-            # Method 1: Add after the declaration line
-            LINE_NUM=$(grep -n "^bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -1 | cut -d: -f1)
-            if [ -n "$LINE_NUM" ]; then
-              echo "Found variable at line $LINE_NUM"
-              sed -i "${LINE_NUM}a EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" fs/susfs.c
-            fi
-            
-            # Method 2: Also add at the end of file as backup
-            echo "" >> fs/susfs.c
-            echo "/* Ensure export visibility */" >> fs/susfs.c
-            echo "EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);" >> fs/susfs.c
-          fi
+          # Approach: Remove ALL #ifdef guards around these symbols to make them always available
           
-          # Add susfs_reorder_mnt_id function
-          if ! grep -q "void susfs_reorder_mnt_id" fs/susfs.c; then
-            echo "Adding susfs_reorder_mnt_id..."
-            cat >> fs/susfs.c << 'REORDER'
+          # Create a Python script to do sophisticated patching
+          cat > /tmp/patch_susfs.py << 'PYSCRIPT'
+          import re
+          import sys
+          
+          with open('fs/susfs.c', 'r') as f:
+              content = f.read()
+          
+          # Find and remove #ifdef guards around susfs_is_avc_log_spoofing_enabled
+          # Pattern: #ifdef CONFIG_xxx ... bool susfs_is_avc_log_spoofing_enabled = false; ... #endif
+          
+          # Method 1: Just make sure the variable is not static
+          content = re.sub(r'^static bool susfs_is_avc_log_spoofing_enabled', 
+                          'bool susfs_is_avc_log_spoofing_enabled', 
+                          content, flags=re.MULTILINE)
+          
+          # Method 2: Add EXPORT_SYMBOL if not present
+          if 'EXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled)' not in content:
+              # Find the variable declaration and add export after it
+              content = re.sub(r'(bool susfs_is_avc_log_spoofing_enabled.*?;)',
+                              r'\1\nEXPORT_SYMBOL_GPL(susfs_is_avc_log_spoofing_enabled);',
+                              content, count=1)
+          
+          # Method 3: Add susfs_reorder_mnt_id if missing
+          if 'void susfs_reorder_mnt_id' not in content:
+              content += '''
           
           void susfs_reorder_mnt_id(void)
           {
-              /* Stub implementation */
+              /* Stub */
           }
           EXPORT_SYMBOL_GPL(susfs_reorder_mnt_id);
-          REORDER
-          fi
+          '''
+          
+          with open('fs/susfs.c', 'w') as f:
+              f.write(content)
+          
+          print("✅ Patching complete")
+          PYSCRIPT
+          
+          python3 /tmp/patch_susfs.py
           
           echo ""
-          echo "=== Step 5: Update header file ==="
+          echo "=== Update header file ==="
           if [ -f "include/linux/susfs.h" ]; then
-            # Check current content
-            echo "Current header end:"
-            tail -10 include/linux/susfs.h
-            
-            # Remove duplicates
+            # Remove old declarations
             sed -i '/extern bool susfs_is_avc_log_spoofing_enabled/d' include/linux/susfs.h
             sed -i '/void susfs_reorder_mnt_id/d' include/linux/susfs.h
             
-            # Add declarations
-            # Find the last #endif and insert before it
+            # Add at the end before final #endif
             LAST_LINE=$(wc -l < include/linux/susfs.h)
             sed -i "${LAST_LINE}i\\
-          /* Exported symbols */\\
           extern bool susfs_is_avc_log_spoofing_enabled;\\
           void susfs_reorder_mnt_id(void);\\
           " include/linux/susfs.h
           fi
           
           echo ""
-          echo "=== Step 6: Verify all changes ==="
-          echo "Variable in susfs.c:"
-          grep -n "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c
+          echo "=== Verification ==="
+          echo "Variable declaration:"
+          grep -n "bool susfs_is_avc_log_spoofing_enabled" fs/susfs.c | head -3
           
           echo ""
-          echo "EXPORT_SYMBOL in susfs.c:"
-          grep -n "EXPORT_SYMBOL.*susfs_is_avc_log_spoofing_enabled" fs/susfs.c
+          echo "EXPORT_SYMBOL:"
+          grep -n "EXPORT_SYMBOL.*susfs_is_avc\|EXPORT_SYMBOL.*susfs_reorder" fs/susfs.c
           
           echo ""
-          echo "Function susfs_reorder_mnt_id:"
-          grep -A3 "void susfs_reorder_mnt_id" fs/susfs.c
-          
-          echo ""
-          echo "EXPORT_SYMBOL for reorder:"
-          grep "EXPORT_SYMBOL.*susfs_reorder_mnt_id" fs/susfs.c
-          
-          echo ""
-          echo "Header file (last 15 lines):"
-          tail -15 include/linux/susfs.h
-          
-          echo ""
-          echo "=== Step 7: Double-check Makefile ==="
-          grep susfs fs/Makefile
+          echo "Functions:"
+          grep -A2 "void susfs_reorder_mnt_id" fs/susfs.c
           
           echo ""
           echo "✅ SUSFS patching complete!"
